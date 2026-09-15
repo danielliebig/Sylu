@@ -1,0 +1,24 @@
+# ===========================================================================
+#  config/packages/dach_products.yaml
+#  The 6 demo products - DELIBERATELY IN ITS OWN FILE
+#
+#  Why separate: this is the riskiest part of the setup (a custom fixture
+#  class, service wiring, image download). If something breaks here, the
+#  rest of the shop should still work.
+#
+#  DISABLE:  mv config/packages/dach_products.yaml{,.disabled}
+#            make cache-clear
+#  After that, "make fixtures" loads everything except the products -
+#  channels, taxes, shipping and payment stay, giving a working shop where
+#  products can be added by hand in the admin.
+#
+#  ENABLE:   mv config/packages/dach_products.yaml{.disabled,}
+# ===========================================================================
+
+sylius_fixtures:
+    suites:
+        dach_demo:
+            fixtures:
+                rockband_products:
+                    options:
+                        image_dir: '%kernel.project_dir%/var/demo-images'

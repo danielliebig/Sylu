@@ -1,0 +1,72 @@
+{% extends "base.html.twig" %}
+
+{% block page_title %}{{ product.name }} – Rockband Demo{% endblock %}
+
+{% block content %}
+
+    <section class="catalog-header">
+        <div class="catalog-header__inner">
+            <p class="catalog-header__breadcrumb">
+                <a href="{{ path('catalog_taxons') }}">Alle Kategorien</a> /
+                <a href="{{ path('catalog_taxon', {taxonCode: taxonCode}) }}">Zurück</a>
+            </p>
+        </div>
+    </section>
+
+    <section class="product-detail">
+        <div class="product-detail__inner">
+            <div class="product-detail__media">
+                {% if product.imagePath %}
+                    <img src="{{ product.imagePath }}" alt="{{ product.name }}" class="product-detail__image">
+                {% else %}
+                    <div class="product-detail__image-placeholder"></div>
+                {% endif %}
+            </div>
+
+            <div class="product-detail__info">
+                <h1 class="product-detail__title">{{ product.name }}</h1>
+
+                <p class="product-detail__price">
+                    {{ product.priceCents|sylius_price }}
+                    {% if product.originalPriceCents %}
+                        <span class="product-detail__price-original">{{ product.originalPriceCents|sylius_price }}</span>
+                    {% endif %}
+                </p>
+
+                {% if product.inStock == false %}
+                    <p class="product-detail__stock product-detail__stock--out">Aktuell ausverkauft</p>
+                {% elseif product.inStock == true %}
+                    <p class="product-detail__stock product-detail__stock--in">Auf Lager</p>
+                {% endif %}
+
+                {% if product.description %}
+                    <div class="product-detail__description">
+                        {{ product.description|nl2br }}
+                    </div>
+                {% elseif product.shortDescription %}
+                    <div class="product-detail__description">
+                        {{ product.shortDescription }}
+                    </div>
+                {% endif %}
+
+                {#
+                    Verified against the running Shop API (FIXES.md No. 26):
+                    POST /api/v2/shop/orders/{token}/items with
+                    {"productVariant": "...", "quantity": N}. Out-of-stock
+                    products still get the form - Sylius' own stock
+                    handling decides whether the add succeeds, we don't
+                    duplicate that logic here.
+                #}
+                <form method="post" action="{{ path('cart_add') }}" class="product-detail__add-form">
+                    <input type="hidden" name="_token" value="{{ csrf_token('cart_action') }}">
+                    <input type="hidden" name="productCode" value="{{ product.code }}">
+                    <input type="number" name="quantity" value="1" min="1" max="99" class="product-detail__quantity">
+                    <button class="button button--primary" type="submit">
+                        In den Warenkorb
+                    </button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+{% endblock %}

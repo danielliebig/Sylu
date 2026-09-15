@@ -1,0 +1,44 @@
+# ===========================================================================
+#  Kickstarter infrastructure (Makefile, docker/, documentation)
+# ===========================================================================
+/.env.docker
+
+# ===========================================================================
+#  Sylius application (project root)
+#
+#  vendor/ is Composer-managed - comes back on clone via
+#  "composer install", does NOT belong in the repo.
+#  composer.json AND composer.lock are deliberately NOT ignored - see
+#  README.md, "For development teams" section.
+# ===========================================================================
+/.env.local
+/.env.*.local
+/vendor/
+/var/
+/node_modules/
+/public/media/
+/public/build/
+/public/bundles/
+
+# ===========================================================================
+#  Sulu application (./sulu)
+#  Same logic as above, mirrored for the second app folder.
+# ===========================================================================
+/sulu/vendor/
+/sulu/var/
+/sulu/node_modules/
+/sulu/public/uploads/
+/sulu/public/build/
+/sulu/public/bundles/
+/sulu/.env.local
+/sulu/.env.*.local
+
+# Demo images are re-downloaded on every setup, not version-controlled
+/var/demo-images/
+
+# ===========================================================================
+#  Editor / OS
+# ===========================================================================
+.DS_Store
+.idea/
+.vscode/

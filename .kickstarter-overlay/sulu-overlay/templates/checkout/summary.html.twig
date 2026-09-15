@@ -1,0 +1,104 @@
+{% extends "base.html.twig" %}
+
+{% block page_title %}Kasse – Übersicht – Rockband Demo{% endblock %}
+
+{% block content %}
+
+    <section class="catalog-header">
+        <div class="catalog-header__inner">
+            <h1 class="catalog-header__title">Zur Kasse</h1>
+            <p class="checkout-steps">
+                <span>1. Adresse</span>
+                <span>2. Versand</span>
+                <span>3. Zahlung</span>
+                <span class="checkout-steps__current">4. Übersicht</span>
+            </p>
+        </div>
+    </section>
+
+    <section class="checkout">
+        <div class="checkout__inner">
+
+            <div class="checkout-summary-block">
+                <h2>Artikel</h2>
+                <div class="cart-items">
+                    {% for item in cart.items %}
+                        <div class="cart-item cart-item--summary">
+                            <span class="cart-item__name">{{ item.productName }} &times; {{ item.quantity }}</span>
+                            <span class="cart-item__subtotal">{{ item.subtotal|sylius_price }}</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="checkout-summary-block">
+                <h2>Lieferadresse</h2>
+                <p>
+                    {{ cart.shippingAddress.firstName }} {{ cart.shippingAddress.lastName }}<br>
+                    {{ cart.shippingAddress.street }}<br>
+                    {{ cart.shippingAddress.postcode }} {{ cart.shippingAddress.city }}
+                </p>
+            </div>
+
+            <div class="checkout-summary-block">
+                <h2>Versand</h2>
+                <p>{{ shippingMethodName }}</p>
+            </div>
+
+            <div class="checkout-summary-block">
+                <h2>Zahlungsart</h2>
+                <p>{{ paymentMethodName }}</p>
+            </div>
+
+            <div class="cart-summary">
+                <div class="cart-summary__row">
+                    <span>Zwischensumme</span>
+                    <span>{{ cart.itemsSubtotal|sylius_price }}</span>
+                </div>
+                <div class="cart-summary__row">
+                    <span>Versand</span>
+                    <span>{{ cart.shippingTotal|sylius_price }}</span>
+                </div>
+                <div class="cart-summary__row cart-summary__row--total">
+                    <span>Gesamt</span>
+                    <span>{{ cart.total|sylius_price }}</span>
+                </div>
+            </div>
+
+            {% if isAdyen %}
+                {#
+                    Adyen's Drop-in widget renders its own "Pay" button
+                    internally (showPayButton defaults to true) and takes
+                    over the entire payment flow itself - see FIXES.md
+                    No. 32. Our usual "place order" form/button is
+                    deliberately NOT shown here; showing both would give
+                    the customer two competing ways to pay.
+
+                    The widget must load Sylius' own compiled shop bundle
+                    (public/build/app/shop/), since we chose not to build
+                    a separate, slimmer asset pipeline for this one
+                    component (see FIXES.md No. 32 for the tradeoff).
+                #}
+                <link rel="stylesheet" href="/build/app/shop/app-shop-entry.css">
+                <script src="/build/app/shop/app-shop-entry.js" defer></script>
+
+                <div id="adyen-payment-form">
+                    <form id="adyen-checkout-form">
+                        <div data-code="adyen">
+                            <div class="dropin-container" data-config-url="{{ adyenConfigUrl }}"></div>
+                        </div>
+                    </form>
+                </div>
+            {% else %}
+                <form method="post" action="{{ path('checkout_complete') }}">
+                    <input type="hidden" name="_token" value="{{ csrf_token('checkout_action') }}">
+                    <button class="button button--primary checkout-complete-btn" type="submit">
+                        Jetzt kostenpflichtig bestellen
+                    </button>
+                </form>
+            {% endif %}
+
+        </div>
+    </section>
+
+{% endblock %}

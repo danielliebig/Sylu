@@ -1,0 +1,45 @@
+{#
+    Overrides Sylius' own @SyliusShop/order/thank_you.html.twig (standard
+    Symfony bundle-template-override mechanism - templates/bundles/<Bundle
+    class name>/<path>, NOT a vendor-code edit).
+
+    LOCATION MATTERS - DO NOT MOVE THIS INTO sulu-overlay/:
+    this route is served by SYLIUS, so the override has to live in the
+    Sylius app's own templates/ directory (the project root). It
+    originally sat in sulu-overlay/templates/bundles/, which made
+    make sulu-theme copy it into the Sulu app - where nothing ever reads
+    it, leaving it silently ineffective (see FIXES.md No. 45).
+
+    Why this exists: Adyen's own SuccessfulResponseProcessor redirects
+    here after a completed payment (hard-coded route name
+    "sylius_shop_order_thank_you", not configurable - see FIXES.md
+    No. 33). Rather than let the customer briefly see Sylius' own,
+    differently-styled confirmation page, this template immediately
+    forwards to our own Sulu confirmation page instead - so this route
+    only needs to be reachable, never actually seen.
+
+    order.number confirmed available here directly from
+    OrderController::thankYouAction() in Sylius core, which renders this
+    template with ['order' => $order] - the same Order entity our own
+    checkout already reads .number from elsewhere in this project.
+
+    Meta-refresh instead of a Twig/PHP redirect: this template is reached
+    via reverse_proxy from Caddy, and a plain HTML redirect here is the
+    simplest mechanism that works regardless of how the response is
+    proxied - no JavaScript dependency, no extra round trip through a
+    redirect response Caddy would need to relay correctly.
+#}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="refresh" content="0; url=/checkout/bestaetigung/{{ order.number }}">
+    <title>Weiterleitung …</title>
+</head>
+<body>
+    <p>
+        Einen Moment bitte …
+        <a href="/checkout/bestaetigung/{{ order.number }}">Weiter zur Bestätigung</a>
+    </p>
+</body>
+</html>

@@ -1,0 +1,68 @@
+{% extends "base.html.twig" %}
+
+{% block page_title %}Kasse – Adresse – Rockband Demo{% endblock %}
+
+{% block content %}
+
+    <section class="catalog-header">
+        <div class="catalog-header__inner">
+            <h1 class="catalog-header__title">Zur Kasse</h1>
+            <p class="checkout-steps">
+                <span class="checkout-steps__current">1. Adresse</span>
+                <span>2. Versand</span>
+                <span>3. Zahlung</span>
+                <span>4. Übersicht</span>
+            </p>
+        </div>
+    </section>
+
+    <section class="checkout">
+        <div class="checkout__inner">
+            <form method="post" action="{{ path('checkout_address_submit') }}" class="checkout-form">
+                <input type="hidden" name="_token" value="{{ csrf_token('checkout_action') }}">
+
+                <label>
+                    E-Mail
+                    <input type="email" name="email" required>
+                </label>
+
+                <div class="checkout-form__row">
+                    <label>
+                        Vorname
+                        <input type="text" name="firstName" required>
+                    </label>
+                    <label>
+                        Nachname
+                        <input type="text" name="lastName" required>
+                    </label>
+                </div>
+
+                <label>
+                    Straße und Hausnummer
+                    <input type="text" name="street" required>
+                </label>
+
+                <div class="checkout-form__row">
+                    <label>
+                        Postleitzahl
+                        <input type="text" name="postcode" required>
+                    </label>
+                    <label>
+                        Stadt
+                        <input type="text" name="city" required>
+                    </label>
+                </div>
+
+                {#
+                    Land fest auf Deutschland - der Katalog und Warenkorb
+                    unterstuetzen aktuell nur den "germany"-Channel, siehe
+                    Klassenkommentar in CheckoutController.php.
+                #}
+                <p class="checkout-form__country">Land: Deutschland</p>
+
+                <button class="button button--primary" type="submit">Weiter zum Versand</button>
+            </form>
+        </div>
+    </section>
+
+{% endblock %}

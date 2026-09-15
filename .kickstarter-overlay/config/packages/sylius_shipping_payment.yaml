@@ -1,0 +1,222 @@
+# ===========================================================================
+#  config/packages/sylius_shipping_payment.yaml
+#  Shipping and payment methods for Germany, Austria, Switzerland
+#
+#  VERIFIED AGAINST THE SOURCE CODE (not documentation/assumption):
+#    vendor/sylius/sylius/.../Fixture/Factory/ShippingMethodExampleFactory.php
+#    vendor/sylius/sylius/.../Fixture/Factory/PaymentMethodExampleFactory.php
+#
+#  ShippingMethod fields (OptionsResolver, see configureOptions()):
+#    code, name, description, enabled, zone, category, tax_category,
+#    calculator{type,configuration}, channels, archived_at
+#
+#  PaymentMethod fields:
+#    code, name, description, instructions, gatewayName, gatewayFactory,
+#    gatewayConfig, usePayum, enabled, channels
+#
+#  TWO FIELDS NO LONGER EXIST IN THIS SYLIUS VERSION (the cause of the
+#  last two error messages):
+#
+#    "translations"  - the factory sets name/description directly from
+#                       the top-level fields, identically for EVERY
+#                       installed locale. A per-locale translation isn't
+#                       possible through this fixture factory. Since our
+#                       default is de_DE, that's fine: all three locales
+#                       (de_DE, de_AT, de_CH) get the same German text -
+#                       entirely sufficient for the demo.
+#
+#    "rules"         - conditional shipping methods ("free from €50")
+#                       can't be expressed through the fixture factory.
+#                       The corresponding entries have been removed.
+#                       A real minimum-order-value rule gets created after
+#                       installation in the admin: Management > Shipping
+#                       Methods > Rules, or via a promotion with an
+#                       "Order total" condition + "Free shipping" action
+#                       (menu: Marketing > Promotions).
+#
+#    "position"      - payment methods have no sort field of their own in
+#                       this version; the order in checkout follows the
+#                       load order below.
+#
+#  Payment methods run as an "offline" gateway (gatewayFactory: 'offline'):
+#  real gateways need API credentials, without which checkout breaks at
+#  the payment step. Names/instruction texts stay realistic.
+# ===========================================================================
+
+sylius_fixtures:
+    suites:
+        dach_demo:
+            fixtures:
+
+                # ===========================================================
+                #  SHIPPING METHODS
+                # ===========================================================
+                shipping_method:
+                    options:
+                        custom:
+
+                            # --- Germany -------------------------------
+                            - code: 'dhl_standard_de'
+                              name: 'DHL Standardversand'
+                              description: 'Lieferung in 2-3 Werktagen'
+                              zone: 'DE'
+                              channels: ['germany']
+                              enabled: true
+                              tax_category: 'standard'
+                              calculator:
+                                  type: 'flat_rate'
+                                  configuration:
+                                      germany: { amount: 495 }
+
+                            - code: 'dhl_express_de'
+                              name: 'DHL Express'
+                              description: 'Zustellung am naechsten Werktag'
+                              zone: 'DE'
+                              channels: ['germany']
+                              enabled: true
+                              tax_category: 'standard'
+                              calculator:
+                                  type: 'flat_rate'
+                                  configuration:
+                                      germany: { amount: 995 }
+
+                            # --- Austria -------------------------------
+                            - code: 'dhl_standard_at'
+                              name: 'DHL Standardversand'
+                              description: 'Lieferung in 3-4 Werktagen'
+                              zone: 'AT'
+                              channels: ['austria']
+                              enabled: true
+                              tax_category: 'standard'
+                              calculator:
+                                  type: 'flat_rate'
+                                  configuration:
+                                      austria: { amount: 695 }
+
+                            # --- Switzerland -----------------------------------
+                            - code: 'swiss_post_standard'
+                              name: 'Schweizerische Post - Standard'
+                              description: 'Lieferung in 3-5 Werktagen, zzgl. Zollabwicklung'
+                              zone: 'CH'
+                              channels: ['switzerland']
+                              enabled: true
+                              tax_category: 'standard'
+                              calculator:
+                                  type: 'flat_rate'
+                                  configuration:
+                                      switzerland: { amount: 995 }
+
+                # ===========================================================
+                #  PAYMENT METHODS
+                # ===========================================================
+                payment_method:
+                    options:
+                        custom:
+
+                            - code: 'paypal'
+                              name: 'PayPal'
+                              description: 'Bezahlen mit Ihrem PayPal-Konto'
+                              gatewayFactory: 'offline'
+                              gatewayName: 'PayPal'
+                              channels: ['germany', 'austria', 'switzerland']
+                              enabled: true
+                              instructions: 'Demo-Modus: In der Live-Umgebung erfolgt hier die Weiterleitung zu PayPal.'
+
+                            - code: 'klarna_invoice'
+                              name: 'Klarna Rechnung'
+                              description: 'Erst erhalten, in 30 Tagen bezahlen'
+                              gatewayFactory: 'offline'
+                              gatewayName: 'Klarna Rechnung'
+                              channels: ['germany', 'austria']
+                              enabled: true
+                              instructions: 'Demo-Modus: Bonitaetspruefung und Klarna-Redirect entfallen.'
+
+                            - code: 'invoice'
+                              name: 'Vorkasse / Ueberweisung'
+                              description: 'Zahlung per Banküberweisung vor Versand'
+                              gatewayFactory: 'offline'
+                              gatewayName: 'Vorkasse'
+                              channels: ['germany', 'austria', 'switzerland']
+                              enabled: true
+                              instructions: |
+                                  Bitte überweisen Sie den Rechnungsbetrag auf folgendes Konto:
+
+                                  Empfänger: Rockband Demo GmbH
+                                  IBAN: DE00 0000 0000 0000 0000 00
+                                  BIC: DEMODEFFXXX
+                                  Verwendungszweck: Ihre Bestellnummer
+
+                                  Der Versand erfolgt nach Zahlungseingang.
+
+                            - code: 'credit_card'
+                              name: 'Kreditkarte'
+                              description: 'Visa, Mastercard, American Express'
+                              gatewayFactory: 'offline'
+                              gatewayName: 'Kreditkarte (Stripe)'
+                              channels: ['germany', 'austria', 'switzerland']
+                              enabled: true
+                              instructions: 'Demo-Modus: In der Live-Umgebung übernimmt Stripe Elements die Kartendaten.'
+
+                            # =======================================================
+                            #  ADYEN - real gateway, disabled by default
+                            #  (see FIXES.md No. 30)
+                            #
+                            #  gatewayFactory: 'adyen' - verified against
+                            #  vendor/sylius/adyen-plugin/src/Provider/AdyenClientProviderInterface.php:
+                            #  "public const FACTORY_NAME = 'adyen';"
+                            #
+                            #  gatewayConfig keys verified against
+                            #  vendor/sylius/adyen-plugin/src/Form/Type/ConfigurationType.php
+                            #  (the admin form field list) - these ARE the
+                            #  exact config array keys, confirmed via
+                            #  PaymentMethodExampleFactory.php:
+                            #  "$gatewayConfig->setConfig($options['gatewayConfig'])" -
+                            #  a flat, 1:1 pass-through, no nesting needed.
+                            #
+                            #  ONE ADYEN ENTRY, NOT THREE: Adyen's own Drop-in
+                            #  widget bundles PayPal/Klarna/card selection
+                            #  INSIDE itself - the customer picks the method
+                            #  inside the widget, not via separate Sylius
+                            #  payment methods. That's Adyen's own intended
+                            #  integration model (confirmed via the plugin's
+                            #  README: "enables multiple ... payment methods"
+                            #  as a single integration), not a limitation we
+                            #  worked around.
+                            #
+                            #  Credentials come from environment variables,
+                            #  never hard-coded here - see .env.docker.example.
+                            #  Empty values are fine while disabled.
+                            - code: 'adyen'
+                              name: 'Online-Zahlung (PayPal, Klarna, Kreditkarte)'
+                              description: 'Sichere Zahlung ueber Adyen'
+                              gatewayFactory: 'adyen'
+                              gatewayName: 'Adyen'
+                              channels: ['germany', 'austria', 'switzerland']
+                              enabled: false
+                              instructions: 'Zahlung ueber das Adyen-Widget - PayPal, Klarna und Kreditkarte in einer Zahlungsart.'
+                              gatewayConfig:
+                                  environment: '%env(ADYEN_ENVIRONMENT)%'
+                                  merchantAccount: '%env(ADYEN_MERCHANT_ACCOUNT)%'
+                                  apiKey: '%env(ADYEN_API_KEY)%'
+                                  clientKey: '%env(ADYEN_CLIENT_KEY)%'
+                                  hmacKey: '%env(ADYEN_HMAC_KEY)%'
+
+# ===========================================================================
+#  MOVING TO REAL PAYMENT GATEWAYS (production)
+#
+#  For DACH, Mollie is usually the shortest path (PayPal, Klarna, Sofort,
+#  credit card, EPS in a single integration):  composer require sylius/mollie-plugin
+#  Alternatively, individually: sylius/paypal-plugin, stripe/stripe-php.
+#  Adjust gatewayFactory above accordingly, pass API keys via environment
+#  variables.
+#
+#  GDPR: payment providers are data processors (Art. 28) - a data
+#  processing agreement is required, and they need to be named in the
+#  privacy policy.
+#
+#  ADDING FREE SHIPPING ABOVE A MINIMUM ORDER VALUE:
+#  Admin > Marketing > Promotions > new promotion with condition
+#  "Order total" (e.g. >= €50) and action "Free shipping" for the
+#  relevant channel. That's the intended path in this Sylius version,
+#  replacing the inline definition previously possible via fixture "rules".
+# ===========================================================================

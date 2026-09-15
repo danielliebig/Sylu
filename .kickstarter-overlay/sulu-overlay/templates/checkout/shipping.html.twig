@@ -1,0 +1,49 @@
+{% extends "base.html.twig" %}
+
+{% block page_title %}Kasse – Versand – Rockband Demo{% endblock %}
+
+{% block content %}
+
+    <section class="catalog-header">
+        <div class="catalog-header__inner">
+            <h1 class="catalog-header__title">Zur Kasse</h1>
+            <p class="checkout-steps">
+                <span>1. Adresse</span>
+                <span class="checkout-steps__current">2. Versand</span>
+                <span>3. Zahlung</span>
+                <span>4. Übersicht</span>
+            </p>
+        </div>
+    </section>
+
+    <section class="checkout">
+        <div class="checkout__inner">
+            {% if methods is empty %}
+                <p class="catalog__empty">
+                    Für deine Adresse ist aktuell keine Versandart verfügbar.
+                </p>
+            {% else %}
+                <form method="post" action="{{ path('checkout_shipping_submit') }}" class="checkout-methods">
+                    <input type="hidden" name="_token" value="{{ csrf_token('checkout_action') }}">
+
+                    {% for method in methods %}
+                        <label class="checkout-method">
+                            <input type="radio" name="methodCode" value="{{ method.code }}"
+                                   {{ method.code == selectedCode ? 'checked' : '' }} required>
+                            <span class="checkout-method__info">
+                                <span class="checkout-method__name">{{ method.name }}</span>
+                                {% if method.description %}
+                                    <span class="checkout-method__desc">{{ method.description }}</span>
+                                {% endif %}
+                            </span>
+                            <span class="checkout-method__price">{{ method.price|sylius_price }}</span>
+                        </label>
+                    {% endfor %}
+
+                    <button class="button button--primary" type="submit">Weiter zur Zahlung</button>
+                </form>
+            {% endif %}
+        </div>
+    </section>
+
+{% endblock %}

@@ -1,0 +1,30 @@
+{
+	{$CADDY_GLOBAL_OPTIONS}
+	frankenphp
+	order php_server before file_server
+	auto_https off
+}
+
+{$SERVER_NAME:localhost} {
+	log {
+		output stderr
+		format filter {
+			wrap console
+			fields {
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+			}
+		}
+	}
+
+	# APP_ROOT is set per container: both apps share this image.
+	root * {$APP_ROOT:/app/public}
+	encode zstd gzip
+
+	@static path *.css *.js *.mjs *.png *.jpg *.jpeg *.webp *.svg *.gif *.ico *.woff *.woff2
+	header @static Cache-Control "public, max-age=3600"
+
+	php_server {
+		index index.php
+	}
+}

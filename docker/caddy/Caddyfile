@@ -1,0 +1,201 @@
+# ===========================================================================
+#  Router Caddyfile - replaces nginx (see FIXES.md No. 16)
+#
+#  Subpath routing (port 80):
+#    /             -> Sulu frontend (complete headless storefront)
+#    /admin/       -> Sulu admin        (same app, Symfony routing)
+#    /shop/        -> SWITCHED OFF, redirects to the Sulu homepage
+#    /shop/admin/  -> redirects to the Sylius admin on its own port (see below)
+#    /mail/        -> Mailpit UI
+#
+#  Sylius admin (separate port, see FIXES.md No. 28):
+#    :8082/admin/  -> Sylius admin, unprefixed - product/order management
+#
+#  WHY SYLIUS ADMIN MOVED TO ITS OWN PORT:
+#  Both Sulu and Sylius build their admin frontend assets under the exact
+#  same URL prefix - /build/admin/ - as two entirely independent,
+#  unrelated build outputs (confirmed: Sulu serves
+#  /build/admin/main.<hash>.css, Sylius serves
+#  /build/admin/admin-entry.css). There is no way to route "/build/admin/"
+#  to the right container by path alone - it's the same string pointing
+#  at two different physical files in two different containers. Rather
+#  than hack around this with an unreliable Encore-config change to
+#  Sylius' own build output (which is vendor code, not ours to alter -
+#  see README.md, "vendor code vs. custom code"), Sylius admin gets its
+#  own Caddy server block on a separate port, running unprefixed at its
+#  own root. No path collision is possible anymore, by construction.
+#
+#  The Sylius Shop API (/api/v2/shop/...) has NEVER been publicly reachable
+#  through this router - Sulu calls it exclusively internally, inside the
+#  Docker network (see sulu-overlay/src/Service/SyliusShopClient.php).
+#  None of this changes that.
+#
+#  WHY CADDY INSTEAD OF NGINX:
+#  This project uses FrankenPHP - which IS Caddy with embedded PHP. Having
+#  nginx as an additional reverse proxy meant two different web server
+#  technologies in the same stack, with different behavior around proxy
+#  headers. That's exactly what caused a real bug: nginx REPLACES
+#  proxy_set_header directives per location block entirely instead of
+#  inheriting them - a location block with just one directive of its own
+#  (X-Forwarded-Prefix) lost the Host header because of it, and Sylius saw
+#  the nginx upstream name instead of the real hostname (see FIXES.md
+#  No. 15).
+#
+#  Caddy's reverse_proxy doesn't have this bug class structurally: the
+#  incoming Host header is forwarded unchanged by default,
+#  X-Forwarded-For/-Proto/-Host are set correctly automatically - with no
+#  manual proxy_set_header directives that could be forgotten or lost
+#  through an override.
+# ===========================================================================
+
+{
+	# No automatic HTTPS - we run locally/behind Docker on port 80/8082.
+	auto_https off
+	admin off
+}
+
+:80 {
+	encode zstd gzip
+
+	# --- Mailpit --------------------------------------------------------
+	redir /mail /mail/ 301
+	handle /mail/* {
+		reverse_proxy mailpit:8025
+	}
+
+	# --- Sylius: bundle assets and media at absolute paths --------------
+	# "handle" (not handle_path) passes the full original path through -
+	# Sylius serves these paths root-relative, not under /shop/. Not
+	# affected by the admin port move: media/bundles serving is plain
+	# asset hosting, unrelated to the /build/admin/ collision above.
+	handle /media/* {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+	handle /bundles/sylius* {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+
+	# --- Sylius: Adyen widget assets (see FIXES.md No. 32) --------------
+	# The compiled shop-frontend bundle that includes the Adyen Drop-in
+	# module lives under this path (only used when the widget renders -
+	# see checkout/summary.html.twig). Confirmed no collision with Sulu's
+	# own /build/ output before adding this rule: Sulu only has
+	# /build/admin/, no /build/app/ (unlike the /build/admin/ collision
+	# in FIXES.md No. 28 that forced the admin onto its own port).
+	handle /build/app/shop/* {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+
+	# --- Sylius: Adyen payment widget (see FIXES.md No. 30) -------------
+	# The Adyen Drop-in widget runs as JavaScript directly in the
+	# customer's browser and must talk to these Sylius endpoints
+	# directly - card data must never pass through our own server for
+	# PCI compliance. This is a deliberate, narrow exception to "Sulu is
+	# the only browser-facing origin" (FIXES.md No. 23), not a reversal
+	# of it - everything else in the shop stays exclusively on Sulu.
+	#
+	# Locales listed explicitly, NOT as "/*/payment/adyen/*": a wildcard
+	# at the start combined with a wildcard in the middle is a confirmed
+	# Caddy bug (github.com/caddyserver/caddy/issues/5029 - the maintainers'
+	# own example, "*/containers/*/json", doesn't match as expected).
+	# The three DACH locales are fixed and known, so listing them
+	# explicitly avoids relying on unreliable wildcard combination
+	# entirely, rather than trusting an unverified edge case.
+	handle /de_DE/payment/adyen/* {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+	handle /de_AT/payment/adyen/* {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+	handle /de_CH/payment/adyen/* {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+	# The webhook Adyen's servers call has no locale prefix.
+	handle /payment/adyen/* {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+	# The API-side Drop-in configuration/details/thank-you endpoints.
+	handle /api/v2/shop/payment/adyen/* {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+	# Deliberately NOT routed: /*/adyen/express-checkout/* (Apple Pay /
+	# Google Pay buttons on product pages) - a separate feature we
+	# weren't asked to build, not a gap in this routing.
+
+	# --- Sylius: order thank-you page (see FIXES.md No. 33) -------------
+	# Adyen's own SuccessfulResponseProcessor redirects here after a
+	# completed payment (hard-coded route name, not configurable - see
+	# No. 33). We override this one Sylius template (standard Symfony
+	# bundle-template-override mechanism, not a vendor-code edit) to
+	# redirect immediately to our own confirmation page, so this route
+	# only needs to be reachable, never actually seen by a customer.
+	# Confirmed no collision with Sulu first: a direct request to Sulu
+	# for this exact path returned 404 before this rule was added.
+	handle /de_DE/order/thank-you {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+	handle /de_AT/order/thank-you {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+	handle /de_CH/order/thank-you {
+		reverse_proxy sylius:80 {
+			header_up X-Forwarded-Prefix "/shop"
+		}
+	}
+
+	# --- Sylius: shop frontend SWITCHED OFF, admin moved to :8082 -------
+	# From here on, Sulu is the complete headless frontend - Sylius only
+	# supplies API data (internal, container-to-container, see
+	# SyliusShopClient.php) and the admin area (now on its own port,
+	# see below) for management.
+	#
+	# {host} instead of a hard-coded "localhost" (see FIXES.md No. 34):
+	# Caddy's own documentation uses exactly this placeholder pattern
+	# (caddyserver.com/docs/caddyfile/patterns, the "redir
+	# https://www.{host}{uri}" example) - it resolves to whatever
+	# hostname the request actually came in on, so this redirect keeps
+	# working unchanged on a real server, not just on localhost.
+	redir /shop/admin* http://{host}:8082/admin/ 302
+	redir /shop /produkte/ 302
+	redir /shop/* /produkte/ 302
+
+	# --- Sulu: frontend + admin (everything else) ------------------------
+	handle {
+		reverse_proxy sulu:80
+	}
+}
+
+# ===========================================================================
+#  Sylius admin - unprefixed, own port, no collision with Sulu possible.
+#  No X-Forwarded-Prefix header here on purpose: Sylius then generates
+#  root-relative asset paths (/build/admin/...) matching this server
+#  block's own root - confirmed empirically against a running container
+#  before this config was written, not assumed (see FIXES.md No. 28).
+# ===========================================================================
+:8082 {
+	encode zstd gzip
+
+	handle {
+		reverse_proxy sylius:80
+	}
+}
