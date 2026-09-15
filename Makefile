@@ -255,17 +255,26 @@ test-integration: ## Run tests against the RUNNING Sylius API (see FIXES.md No. 
 	@printf "$(B)>> Copying the overlay into ./sulu first$(N)\n"
 	@$(MAKE) --no-print-directory sulu-theme
 	@printf "$(B)>> Integration tests against the live Shop API$(N)\n"
-	@printf "$(Y)   Needs running containers with fixtures loaded.$(N)\n"
-	@printf "$(Y)   Tests skip themselves with a clear message if the API is unreachable.$(N)\n"
-	$(SULU) vendor/bin/phpunit --testdox --group integration
+# --fail-on-skipped: the tests skip themselves when the API is unreachable,
+# which PHPUnit would otherwise report as a pass with nothing run. The || arm
+# carries the prerequisite hint, so a successful run stays quiet. Wording
+# covers a real test failure too - that also lands here.
+	@$(SULU) vendor/bin/phpunit --testdox --fail-on-skipped --group integration \
+	  || { printf "$(Y)   No test ran, or a test failed. Integration tests need\n"; \
+	       printf "   running containers with fixtures loaded - try: make setup$(N)\n"; \
+	       exit 1; }
 	@printf "$(G)>> Integration tests passed.$(N)\n"
 
 test-smoke: ## Check the storefront through Caddy: pages, elements, routing (see FIXES.md No. 49)
 	@printf "$(B)>> Copying the overlay into ./sulu first$(N)\n"
 	@$(MAKE) --no-print-directory sulu-theme
 	@printf "$(B)>> Front-end smoke tests through the Caddy router$(N)\n"
-	@printf "$(Y)   Needs running containers, fixtures loaded and the Sulu homepage published.$(N)\n"
-	$(SULU) vendor/bin/phpunit --testdox --group smoke
+# Same reasoning as test-integration above. The smoke tests do NOT need a
+# published Sulu homepage - they only request controller routes, never "/".
+	@$(SULU) vendor/bin/phpunit --testdox --fail-on-skipped --group smoke \
+	  || { printf "$(Y)   No test ran, or a test failed. Smoke tests need running\n"; \
+	       printf "   containers with fixtures loaded - try: make setup$(N)\n"; \
+	       exit 1; }
 	@printf "$(G)>> Smoke tests passed.$(N)\n"
 
 test-all: ## Unit tests, integration tests and smoke tests
