@@ -1,13 +1,5 @@
 # Backlog
 
-## P1 — Hinweismeldungen in Test-Targets bereinigen
-**Ziel:** Kein gelbes Rauschen bei erfolgreichen Läufen.
-**Scope:** `make test-smoke`, `make test-integration` — die unbedingt
-ausgegebenen Voraussetzungs-Hinweise entfernen.
-**Nicht-Scope:** Die Selbst-Überspring-Logik in den Tests; die bleibt.
-**Akzeptanz:** Erfolgreicher Lauf zeigt nur Fortschritt und Ergebnis.
-**Tests:** `make test-all` läuft unverändert grün.
-
 ## P2 — CI-Pipeline
 **Ziel:** `make setup`, `make phpstan`, `make test-all` laufen
 automatisch bei jedem Commit.
@@ -16,7 +8,10 @@ automatisch bei jedem Commit.
 **Akzeptanz:** Fehlschlag bei gebrochenem Setup oder rotem Test;
 Laufzeit dokumentiert.
 **Tests:** Absichtlich gebrochener Commit lässt die Pipeline rot werden.
-**Hinweis:** Letzter Punkt der ursprünglichen Lückenliste.
+**Hinweis:** Letzter Punkt der ursprünglichen Lückenliste. Seit
+FIXES.md Nr. 50 melden `test-integration` und `test-smoke` einen Lauf
+ohne ausgeführte Tests als Fehler — ohne das hätte die Pipeline bei
+fehlenden Containern grün geleuchtet.
 
 ## P2 — Adyen gegen echte Sandbox testen
 **Ziel:** Den nie ausgeführten Zahlungsvorgang verifizieren.

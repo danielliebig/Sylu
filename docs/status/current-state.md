@@ -31,15 +31,15 @@ vorliegen. Adyen ist per Default deaktiviert.
   Startseite im Sulu-Admin veröffentlichen.
 - Beim Ordnerwechsel zwingend `docker compose down -v` im alten Ordner.
 
-## Offene Kleinigkeit aus der letzten Runde
-`make test-smoke` und `make test-integration` geben ihre
-Voraussetzungs-Hinweise **immer** aus, auch wenn alles läuft — gelb
-formatiert, wirkt wie eine Warnung. Die Tests überspringen sich im
-Fehlerfall ohnehin selbst mit klarer Meldung samt Abhilfe
-(`make fixtures` bzw. `make setup`), die Zeilen sind also redundant.
-Entfernt, Testlauf steht noch aus.
+## Erledigt in dieser Runde
+`make test-integration` und `make test-smoke` meldeten bei
+abgeschaltetem Stack Erfolg, obwohl null Tests liefen — PHPUnit endet
+mit Exitcode 0, wenn alles übersprungen wurde. Behoben mit
+`--fail-on-skipped`; der Voraussetzungs-Hinweis steht jetzt im
+Fehlerzweig, ein erfolgreicher Lauf ist damit gelbfrei. Details in
+FIXES.md Nr. 50.
 
 Nebenbefund: Die Hinweiszeile in `test-smoke` nannte eine
 veröffentlichte Startseite als Voraussetzung. Die 15 Smoke-Tests rufen
 `/` nicht auf — nur Controller-Routen sowie Admin- und Mailpit-Routing.
-Die Angabe war falsch und ist in arc42 Kapitel 10 korrigiert.
+In arc42 Kapitel 10 korrigiert.

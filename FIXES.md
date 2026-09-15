@@ -2367,6 +2367,49 @@ there; the fix that entry describes is unaffected.
 `make test-all` together. That is now the last item on the original
 list of gaps.
 
+## 50. `make test-integration` and `make test-smoke` reported success with zero tests run *(v35)*
+
+**Started as cosmetics, turned out to be a false green.** Both targets
+printed their prerequisites as unconditional yellow lines, which looked
+like a warning on every successful run. The plan was simply to delete
+them: the tests skip themselves in `setUp()` when the API or the stack
+is unreachable, and those messages even name the remedy
+(`make fixtures`, `make setup`).
+
+**Deliberately breaking it first is what saved this.** With `sylius`
+stopped, `make test-integration` skipped all 10 tests — and then printed
+`>> Integration tests passed.` PHPUnit exits 0 on a skipped-only run, so
+the success line fired with nothing verified. Worse, under `--testdox`
+the skip *reasons* are never displayed: the output is ten `↩` glyphs and
+no explanation. So the yellow lines were the only remaining hint, and
+deleting them would have made things worse, not tidier.
+
+In CI — the next item on the backlog — this would have meant a green
+build over completely untested code.
+
+**Fix, in two parts:**
+
+- `--fail-on-skipped` on both phpunit calls. A skipped-only run now
+  exits non-zero, the target aborts, and the success line cannot lie.
+- The prerequisite hint moved into an `|| { ...; exit 1; }` arm. A
+  successful run shows only progress and result; a failed one names the
+  remedy. The wording covers a genuine test failure too, since that
+  lands in the same arm.
+
+`--display-skipped` was tried and dropped: it has no effect alongside
+`--testdox`, and a flag that does nothing invites removal of the ones
+that do.
+
+**Corrected along the way:** the hint in `test-smoke` claimed a
+published Sulu homepage was required. It is not — the 15 smoke tests
+only request controller routes (`/produkte/*`, `/warenkorb/*`,
+`/checkout/*`) plus the admin and Mailpit routes, never `/`. The table
+in No. 49 above still carries the old claim; it stays as written, since
+this file is a record. arc42 ch. 10 is corrected.
+
+**Not changed:** the self-skip logic in the tests, and `make test`,
+which has no skip path and still echoes its recipe line.
+
 ## What's structurally different
 
 **Verify before installing.** `make verify` tests classes, service IDs,
