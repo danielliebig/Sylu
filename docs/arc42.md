@@ -185,7 +185,7 @@ Sulu Level `max` inklusive `tests`.
 | Risiko | Schwere | Stand |
 |---|---|---|
 | Adyen nie real getestet | hoch | offen, Zugangsdaten fehlen |
-| Kein CI | mittel | offen |
+| Kein CI | mittel | bewusst offen, ADR-10 |
 | Demo-Branding in 18 Dateien | mittel | offen, ADR-09 |
 | Bundle-Overrides brechen bei Sylius-Update still | mittel | teilweise geprüft |
 | Serverbetrieb unverifiziert | mittel | offen |

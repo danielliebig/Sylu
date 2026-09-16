@@ -1,4 +1,4 @@
-# Aktueller Stand — v34
+# Aktueller Stand — v36
 
 ## Funktionsfähig und bestätigt
 - Sulu-Startseite mit Live-Produktdaten aus Sylius
@@ -22,7 +22,7 @@ vorliegen. Adyen ist per Default deaktiviert.
 ## Bekannte Einschränkungen
 - Frontend nutzt hartkodiert den Channel `germany`; AT/CH sind
   konfiguriert und seit v33 datenseitig korrekt, aber nicht angebunden.
-- Kein CI.
+- Kein CI — bewusst offen, siehe ADR-10.
 - Demo-Branding („Rockband") in 18 Dateien verteilt.
 - Smoke-Tests können JS-gerenderte Teile nicht prüfen.
 

@@ -2,16 +2,88 @@
 
 ## P2 — CI-Pipeline
 **Ziel:** `make setup`, `make phpstan`, `make test-all` laufen
-automatisch bei jedem Commit.
-**Scope:** Eine Pipeline-Definition (GitHub Actions oder GitLab CI).
+automatisch, statt von Hand ausgeführt zu werden.
+**Scope:** Eine Pipeline-Definition (GitHub Actions, GitLab CI, Jenkins).
 **Nicht-Scope:** Deployment, Registry, Secrets-Management.
 **Akzeptanz:** Fehlschlag bei gebrochenem Setup oder rotem Test;
 Laufzeit dokumentiert.
 **Tests:** Absichtlich gebrochener Commit lässt die Pipeline rot werden.
-**Hinweis:** Letzter Punkt der ursprünglichen Lückenliste. Seit
-FIXES.md Nr. 50 melden `test-integration` und `test-smoke` einen Lauf
-ohne ausgeführte Tests als Fehler — ohne das hätte die Pipeline bei
-fehlenden Containern grün geleuchtet.
+**Status:** Bewusst offen gelassen und dem übernehmenden Team überlassen,
+weil die Plattformwahl an dessen Zielinfrastruktur hängt — siehe ADR-10.
+Letzter Punkt der ursprünglichen Lückenliste.
+
+### Befunde, die man sonst selbst erarbeiten muss
+
+Gegen den tatsächlichen Code geprüft, nicht geschätzt:
+
+1. **Jedes Test-Target braucht Docker.** `SULU` und `SYL` im Makefile
+   sind `docker compose exec -T`, auch für `make test`. Ein schneller
+   „nur Unit-Tests"-Job ist damit nicht möglich: `docker-build`,
+   `install-apps`, `docker-start` und `deps` müssen vorher laufen.
+   Realistische Laufzeit eines vollen Durchlaufs 20–30 min, nicht 2.
+   Konsequenz für den Zuschnitt: eher nächtlich und manuell auslösbar
+   als bei jedem Push.
+2. **Die Upstream-Versionen sind nicht hart gepinnt.**
+   `docker/scripts/install-apps.sh` nimmt `SYLIUS_VERSION` mit Default
+   `^2.2` und `SULU_VERSION` mit Default `^3.0`, beide über Umgebungs-
+   variablen überschreibbar. Eine nächtliche Pipeline fängt damit
+   Upstream-Drift früh — kann aber rot werden, ohne dass sich im Repo
+   etwas geändert hat. Wer das nicht will, setzt beide Variablen im
+   Pipeline-Environment auf exakte Versionen.
+3. **`vendor/bin/phpstan analyse` ohne `-c` greift die falsche
+   Konfiguration.** Ohne Argument gilt Sylius' `phpstan.dist.neon`:
+   Level 9 auf `bin/ config/ public/ src/ tests/`. Nur `make phpstan`
+   nimmt `phpstan-kickstarter.dist.neon` (Level 5, Begründung in
+   ADR-08) und ruft vorher `sulu-theme` auf, damit die Sulu-Seite nicht
+   alte Dateistände analysiert (FIXES.md Nr. 48).
+4. **`make setup` verschluckt einen Fehler.** Im Target `deps` ist der
+   Sulu-`cache:clear` als `… && printf … || printf …` verdrahtet. Der
+   Exit-Code der Zeile ist der von `printf`, also immer 0: ein
+   gescheiterter Cache-Bau meldet sich rot im Log, bricht `make setup`
+   aber nicht ab. Wer `make setup` unverändert in eine Pipeline hängt,
+   hat an dieser Stelle ein falsches Grün. Bewusst nicht mitbehoben, um
+   das Verhalten von `make setup` hier nicht stillschweigend zu ändern —
+   entweder im Makefile geradeziehen oder in der Pipeline einen eigenen
+   Schritt für den Sulu-Cache vorsehen.
+5. **Plattform ist unkritisch.** `docker-compose.yaml` pinnt bewusst
+   kein `platform: linux/arm64` (Kommentar dort). x86_64-Runner laufen
+   unverändert — und decken damit die Zielplattform Linux x86_64 ab,
+   die bei lokaler Entwicklung auf Apple Silicon nie getestet wird.
+6. **Falsches Grün bei null Tests ist abgedeckt.** Seit FIXES.md Nr. 50
+   melden `test-integration` und `test-smoke` einen Lauf ohne
+   ausgeführte Tests als Fehler (`--fail-on-skipped`). Ohne das hätte
+   eine Pipeline bei fehlenden Containern grün geleuchtet.
+
+### Offene Unterentscheidung: geerbte Skeleton-Workflows
+
+`.github/` enthält unverändert das, was `composer create-project
+sylius/sylius-standard` mitbringt: `workflows/build.yml`, `ci.yaml`,
+`ci_js.yaml`, `ci_static-checks.yaml`, `auto-merge.yml`, `matrix.json`
+sowie `dependabot.yml`, `autolabeler.yml`, `CODEOWNERS`. Nichts davon
+wurde für dieses Projekt geschrieben oder angepasst. `build.yml`
+triggert auf Push, Pull Request und nächtlich um 03:00 UTC und ruft die
+übrigen Workflows auf. Sie führen unter anderem aus:
+
+- `composer update --no-interaction --no-scripts`, also ohne Lock —
+  gegen die bewusste Versionsfixierung, vor deren Aufweichung
+  `make verify` sogar warnt
+- `vendor/bin/phpstan analyse` ohne `-c`, siehe Befund 3 oben
+- Behat- und JS-Suiten des Skeletons; `features/` ist in diesem
+  Projekt leer
+- `auto-merge.yml` erwartet ein Secret `DEPENDABOT_TOKEN` und würde
+  Minor-Upgrades automatisch mergen
+
+**Option A — entfernen.** Sauberer Ausgangspunkt, kein rotes
+Actions-Tab, niemand debuggt fremde Workflows. Nachteil: die
+Skeleton-Struktur als Vorlage ist weg und muss bei Bedarf aus einem
+frischen `sylius-standard` geholt werden.
+**Option B — liegen lassen.** Nichts geht verloren, aber die Läufe
+scheitern vermutlich dauerhaft, und eine falsche Vorlage liegt genau
+am Pfad, an dem man eine richtige erwartet. Das Muster hat in diesem
+Projekt schon zweimal Zeit gekostet (FIXES.md Nr. 3 und Nr. 45).
+**Option C — stilllegen.** Trigger auf `workflow_dispatch` reduzieren
+und einen Kommentarkopf einsetzen. Kompromiss, erzeugt aber Dateien,
+die aussehen wie gepflegt und es nicht sind.
 
 ## P2 — Adyen gegen echte Sandbox testen
 **Ziel:** Den nie ausgeführten Zahlungsvorgang verifizieren.

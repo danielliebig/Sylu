@@ -10,6 +10,41 @@ adapted for an internal kickstarter project rather than a public
 library, so there's no strict Added/Changed/Fixed split where it
 wouldn't add value.
 
+## [v36]
+
+- Decided: no CI pipeline ships with this project. Platform choice
+  depends on the infrastructure the project lands in, so it is left to
+  the team taking over (docs/decisions.md, ADR-10)
+- Added: `docs/status/backlog.md` under "P2 — CI-Pipeline" now carries
+  the groundwork instead of a to-do — six findings verified against the
+  actual code: every test target runs through `docker compose exec -T`
+  (so a containerless unit-test job is not possible), the upstream
+  versions default to `^2.2` / `^3.0` rather than exact pins, a bare
+  `vendor/bin/phpstan analyse` picks up Sylius' level 9 configuration
+  instead of ours, the Sulu `cache:clear` step in `make deps` cannot
+  fail the build because its exit code is `printf`'s, no platform is
+  pinned in `docker-compose.yaml`, and the zero-tests false green is
+  already closed by No. 50
+- Added: the inherited `sylius-standard` workflows in `.github/` are
+  documented as an open sub-decision with three options and their
+  consequences — they run `composer update` without the lock file,
+  PHPStan with the wrong configuration, Behat against an empty
+  `features/`, and auto-merge with a secret that does not exist here
+- Added: handoff pitfalls 7 and 8 — those workflows are not a template,
+  and "no containers needed" for `make test` means "no fixtures needed",
+  not "no Docker"
+- Note: the `make deps` false green is documented, not fixed. Changing
+  the behaviour of `make setup` is a separate step
+
+## [v35]
+
+Recorded but never packaged — the version number was not reused, so
+this section exists to keep the CHANGELOG continuous with FIXES.md.
+
+- Fixed: `make test-integration` and `make test-smoke` reported success
+  when zero tests had run, for instance with the containers stopped.
+  Both now pass `--fail-on-skipped` (FIXES.md No. 50)
+
 ## [v34]
 
 - Added: `make test-smoke` — 15 front-end tests checking that the pages

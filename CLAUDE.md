@@ -1,6 +1,6 @@
 # CLAUDE.md — Architecture and working documentation
 
-> **Version 34, verified against Sulu 3.0.8 / Sylius 2.2.8 / Symfony 7.4.16 /
+> **Version 36, verified against Sulu 3.0.8 / Sylius 2.2.8 / Symfony 7.4.16 /
 > PHP 8.3.33.** Every bug from previous attempts and its fix are recorded
 > in FIXES.md. Wherever this document disagrees with FIXES.md, FIXES.md
 > wins — especially point 10 (Sulu version), point 8 (service wiring via

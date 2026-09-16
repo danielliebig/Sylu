@@ -1,4 +1,4 @@
-# 🎸 Sulu & Sylius Kickstarter (Version 34)
+# 🎸 Sulu & Sylius Kickstarter (Version 36)
 
 Content managed with **Sulu**, shop powered by **Sylius**, both behind a
 single Caddy router under one URL. Native on Apple Silicon and Linux x86_64.
@@ -73,9 +73,12 @@ older, patched state survives) *and* one continuous commit history across
 every version:
 
 ```bash
-# Stop the old containers
+# Stop the old containers and drop the volumes. The `-v` is not
+# optional: every version folder uses the same Docker project name and
+# therefore the same volumes, so a "fresh" folder would otherwise start
+# on the old database (see the pitfall list in docs/status/handoff.md)
 cd ~/Tools/sulu-sylius-kickstarter-vOLD
-docker compose -f docker-compose.yaml --env-file .env.docker down
+docker compose -f docker-compose.yaml --env-file .env.docker down -v
 
 # New folder, git history carried over
 mkdir -p ~/Tools/sulu-sylius-kickstarter-vNEXT
@@ -114,7 +117,7 @@ the current state entirely:
 ```bash
 mkdir -p ~/Tools/sulu-sylius-kickstarter
 cd ~/Tools/sulu-sylius-kickstarter
-tar xzf ~/Downloads/sulu-sylius-kickstarter-v34.tar.gz
+tar xzf ~/Downloads/sulu-sylius-kickstarter-v36.tar.gz
 chmod +x docker/scripts/*.sh
 cp .env.docker.example .env.docker
 make setup
@@ -680,8 +683,15 @@ asserted there. Both would need Panther or Playwright.
 See FIXES.md No. 46, 47 and 49 for what each test pins down and why.
 Like `make phpstan`, none of this is wired into `make setup`.
 
-**Still missing:** a CI pipeline tying `make setup`, `make phpstan` and
-`make test-all` together.
+**No CI pipeline is included, on purpose.** The choice of platform
+depends on the infrastructure this project lands in, so tying `make
+setup`, `make phpstan` and `make test-all` together is left to the team
+taking over. `docs/decisions.md` (ADR-10) records the decision;
+`docs/status/backlog.md` under "P2 — CI-Pipeline" collects the verified
+groundwork — which targets need running containers, where the upstream
+versions are unpinned, which PHPStan configuration a bare
+`vendor/bin/phpstan` picks up, and the one place where `make setup`
+would report a false green.
 
 ### Vendor code vs. your own customizations
 

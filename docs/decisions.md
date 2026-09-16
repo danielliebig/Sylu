@@ -78,3 +78,17 @@ der sichtbare Homepage-Text blieb — Sulu speichert Inhalte als Entwurf
 und braucht manuelles Veröffentlichen.
 **Konsequenzen:** „Rockband" steckt weiterhin in 18 Dateien.
 Bei erneutem Anlauf zuerst das Veröffentlichen-Problem lösen.
+
+## ADR-10 CI dem übernehmenden Team überlassen
+**Status:** bewusst offen
+**Entscheidung:** Keine Pipeline-Definition im Projektpaket.
+**Begründung:** Die Plattformwahl (GitHub Actions, GitLab CI, Jenkins)
+hängt an der Zielinfrastruktur des übernehmenden Teams. Eine
+mitgelieferte Definition wäre eine Vorentscheidung, die dort
+wahrscheinlich ohnehin ersetzt würde.
+**Konsequenzen:** `.github/` enthält weiterhin das unveränderte
+Sylius-Standard-Skeleton, das für dieses Projekt nicht gilt — ob es
+entfernt, stillgelegt oder behalten wird, ist ebenfalls offen. Die
+geprüften Voraussetzungen und Fallstricke für einen späteren Anlauf
+stehen im Backlog unter „P2 — CI-Pipeline", damit sie nicht erneut
+erarbeitet werden müssen.

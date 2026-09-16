@@ -1,4 +1,4 @@
-# 🎸 Sulu & Sylius Kickstarter — Quickstart (Version 34, headless)
+# 🎸 Sulu & Sylius Kickstarter — Quickstart (Version 36, headless)
 
 This guide takes the project from an empty folder to a fully headless
 shop: **Sylius only supplies data through its API**, the entire visible
@@ -19,7 +19,7 @@ assigned (Settings → Resources → Memory).
 ```bash
 mkdir -p ~/Tools/sulu-sylius-kickstarter
 cd ~/Tools/sulu-sylius-kickstarter
-tar xzf ~/Downloads/sulu-sylius-kickstarter-v34.tar.gz
+tar xzf ~/Downloads/sulu-sylius-kickstarter-v36.tar.gz
 chmod +x docker/scripts/*.sh
 cp .env.docker.example .env.docker
 make setup

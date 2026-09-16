@@ -2,11 +2,11 @@
 
 ## Was das ist
 Kickstarter für Sulu-CMS-plus-Sylius-Shop-Projekte, headless, DACH.
-Stand v34. Für Agenturteams gedacht, nicht als Wegwerf-Demo.
+Stand v36. Für Agenturteams gedacht, nicht als Wegwerf-Demo.
 
 ## Erster Start
 ```
-tar xzf sulu-sylius-kickstarter-v34.tar.gz
+tar xzf sulu-sylius-kickstarter-v36.tar.gz
 chmod +x docker/scripts/*.sh
 cp .env.docker.example .env.docker
 make setup
@@ -74,6 +74,16 @@ dokumentiert `composer.json`-Konflikte.
    gibt. Schritt 1 wird übersprungen, sobald Sylius installiert ist —
    ein committeter Abzug friert damit ein und weicht still vom
    Projektstand ab. Beide stehen in `.gitignore`.
+7. **Die Workflows in `.github/` sind keine Vorlage.** Sie stammen
+   unverändert aus `sylius/sylius-standard` und wurden für dieses
+   Projekt nie angepasst: `composer update` ohne Lock, PHPStan mit
+   Sylius' Level-9-Konfiguration statt der eigenen, Behat gegen ein
+   leeres `features/`, Auto-Merge mit einem Secret, das es hier nicht
+   gibt. Wer CI aufsetzt, fängt besser bei den Make-Targets an — siehe
+   ADR-10 und Backlog „P2 — CI-Pipeline".
+8. **„Keine Container nötig" bei `make test` heißt „keine Fixtures".**
+   Auch die Unit-Tests laufen über `docker compose exec -T sulu`. Ohne
+   laufenden Stack gibt es keinen Testlauf, nur eine Docker-Fehlermeldung.
 
 ## Ungetestet
 Adyen. Backend und Widget sind gebaut und gegen Plugin-Code verifiziert,
@@ -81,6 +91,8 @@ der Zahlungsvorgang lief aber nie — es fehlen Sandbox-Zugangsdaten.
 Standardmäßig deaktiviert.
 
 ## Nächste Schritte
-Siehe `docs/status/backlog.md`. Höchste Priorität: CI-Pipeline,
-Adyen-Verifizierung, zweiter Anlauf für die Entfernbarkeit des
-Demo-Brandings.
+Siehe `docs/status/backlog.md`. Höchste Priorität: Adyen-Verifizierung
+und zweiter Anlauf für die Entfernbarkeit des Demo-Brandings. Die
+CI-Pipeline steht dort ebenfalls, ist aber kein offener Auftrag an euch,
+sondern eine offen gelassene Entscheidung (ADR-10) — Befunde und
+Fallstricke sind im Backlog gesammelt.
