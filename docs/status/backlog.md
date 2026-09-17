@@ -1,5 +1,22 @@
 # Backlog
 
+## P1 — Versionsstrategie: Patch-Updates beim Projektstart (v38)
+**Ziel:** Ein neues Projekt startet mit den neuesten Patches innerhalb
+der Versionsregel (ADR-11) und bleibt trotzdem lauffähig.
+**Scope:** `make setup` bleibt beim geprüften Lock-Stand. Ein eigener
+Schritt aktualisiert beide Apps innerhalb der Constraints (Patches ja,
+ungetestete Minor-Versionen nein) und lässt `make verify` und die Tests
+laufen. Eigenes Sulu-Lockfile als Rückfallstand (das Sulu-Skeleton
+liefert keins mit). Versionsbericht über verfügbare, bewusst nicht
+übernommene Minor- und Major-Versionen, geprüft gegen ADR-11.
+**Nicht-Scope:** automatische Minor-/Major-Sprünge; Änderungen an
+`.github/` (ADR-10).
+**Akzeptanz:** Nach dem Update-Schritt sind Symfony und Sulu auf dem
+neuesten Patch; ein absichtlich kaputtes Update lässt den Schritt
+fehlschlagen, ohne den Lock-Stand zu verlieren.
+**Status:** Grundsatz entschieden (v37), Detailplan gegen den Code steht
+aus.
+
 ## P2 — CI-Pipeline
 **Ziel:** `make setup`, `make phpstan`, `make test-all` laufen
 automatisch, statt von Hand ausgeführt zu werden.
@@ -23,13 +40,17 @@ Gegen den tatsächlichen Code geprüft, nicht geschätzt:
    Realistische Laufzeit eines vollen Durchlaufs 20–30 min, nicht 2.
    Konsequenz für den Zuschnitt: eher nächtlich und manuell auslösbar
    als bei jedem Push.
-2. **Die Upstream-Versionen sind nicht hart gepinnt.**
-   `docker/scripts/install-apps.sh` nimmt `SYLIUS_VERSION` mit Default
-   `^2.2` und `SULU_VERSION` mit Default `^3.0`, beide über Umgebungs-
-   variablen überschreibbar. Eine nächtliche Pipeline fängt damit
-   Upstream-Drift früh — kann aber rot werden, ohne dass sich im Repo
-   etwas geändert hat. Wer das nicht will, setzt beide Variablen im
-   Pipeline-Environment auf exakte Versionen.
+2. **Sylius ist gelockt, Sulu wird beim Setup aufgelöst.** Weil
+   `composer.json` mit `sylius/sylius` eingecheckt ist, überspringt
+   `docker/scripts/install-apps.sh` das `create-project` für Sylius;
+   `make deps` installiert exakt den Stand aus `composer.lock`
+   (`SYLIUS_VERSION` greift nur ohne `composer.json`). Sulu dagegen
+   entsteht bei jedem Setup per `create-project` mit `SULU_VERSION`,
+   seit v37 Default `~3.0.9` (ADR-11): neueste 3.0.x-Patches, kein
+   ungetestetes 3.1. Eine nächtliche Pipeline kann auf der Sulu-Seite
+   also rot werden, ohne dass sich im Repo etwas geändert hat. Wer das
+   nicht will, setzt `SULU_VERSION` im Pipeline-Environment auf eine
+   exakte Version.
 3. **`vendor/bin/phpstan analyse` ohne `-c` greift die falsche
    Konfiguration.** Ohne Argument gilt Sylius' `phpstan.dist.neon`:
    Level 9 auf `bin/ config/ public/ src/ tests/`. Nur `make phpstan`
@@ -54,7 +75,11 @@ Gegen den tatsächlichen Code geprüft, nicht geschätzt:
    ausgeführte Tests als Fehler (`--fail-on-skipped`). Ohne das hätte
    eine Pipeline bei fehlenden Containern grün geleuchtet.
 
-### Offene Unterentscheidung: geerbte Skeleton-Workflows
+### Unterentscheidung: geerbte Skeleton-Workflows — entschieden (v37)
+
+**Entscheidung:** Option B, liegen lassen — `.github/` stammt aus dem
+Sylius-Skeleton und bleibt unverändert (Nachtrag in ADR-10). Die
+folgende Analyse bleibt als Grundlage für das übernehmende Team stehen.
 
 `.github/` enthält unverändert das, was `composer create-project
 sylius/sylius-standard` mitbringt: `workflows/build.yml`, `ci.yaml`,

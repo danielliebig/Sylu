@@ -2,7 +2,7 @@
 #  config/packages/dach_demo.yaml
 #  DACH base data for the demo shop
 #
-#  VERIFIED AGAINST: Sylius 2.2.8, Symfony 7.4.16, PHP 8.3.33
+#  VERIFIED AGAINST: Sylius 2.2.9, Symfony 7.4.18, PHP 8.5.10
 #
 #  IMPORTANT - why this file is NOT called "_sylius.yaml":
 #  Sylius 2.x ships its own config/packages/_sylius.yaml, which contains

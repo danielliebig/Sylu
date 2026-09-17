@@ -3,9 +3,9 @@
 #  Shared PHP image for both Sulu AND Sylius (FrankenPHP)
 #  Multi-arch: builds identically on linux/arm64 (M5) and linux/amd64 (server).
 # ===========================================================================
-ARG FRANKENPHP_VERSION=1-php8.3
+ARG FRANKENPHP_VERSION=1-php8.5
 
-# Rolling tag instead of "1.2-php8.3": patch tags occasionally disappear
+# Rolling tag instead of "1.2-php8.5": patch tags occasionally disappear
 # from the registry and break reproducible builds when they do.
 FROM dunglas/frankenphp:${FRANKENPHP_VERSION}
 
@@ -48,8 +48,10 @@ RUN install-php-extensions \
 # --- Composer ----------------------------------------------------------------
 COPY --from=composer/composer:2-bin /composer /usr/bin/composer
 
-# --- Node.js 20 + Yarn (Sylius assets) ---------------------------------------
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# --- Node.js 24 + Yarn (Sylius assets) ---------------------------------------
+# 24 is the highest Node version both Sylius and Sulu test in their
+# upstream CI (version rule: docs/decisions.md, ADR-11).
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g yarn@1.22.22 \
     && npm cache clean --force \

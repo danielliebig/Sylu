@@ -87,8 +87,35 @@ hängt an der Zielinfrastruktur des übernehmenden Teams. Eine
 mitgelieferte Definition wäre eine Vorentscheidung, die dort
 wahrscheinlich ohnehin ersetzt würde.
 **Konsequenzen:** `.github/` enthält weiterhin das unveränderte
-Sylius-Standard-Skeleton, das für dieses Projekt nicht gilt — ob es
-entfernt, stillgelegt oder behalten wird, ist ebenfalls offen. Die
+Sylius-Standard-Skeleton, das für dieses Projekt nicht gilt. Die
 geprüften Voraussetzungen und Fallstricke für einen späteren Anlauf
 stehen im Backlog unter „P2 — CI-Pipeline", damit sie nicht erneut
 erarbeitet werden müssen.
+**Nachtrag v37:** Die Unterentscheidung zu `.github/` ist getroffen —
+es bleibt unverändert, weil es aus dem Sylius-Skeleton stammt
+(Backlog, Option B). Dependabot und die Skeleton-Workflows laufen damit
+weiter. Wer die Läufe stoppen will, ohne das Repo zu ändern, deaktiviert
+GitHub Actions in den Repository-Einstellungen.
+
+## ADR-11 Versionsregel für PHP, Datenbank und Node.js
+**Status:** umgesetzt (v37)
+**Entscheidung:** Maßgeblich ist die Upstream-CI, also die öffentliche
+Testkonfiguration von Sylius **und** Sulu — nicht deren Dokumentation.
+Gewählt wird die höchste PHP-Version, die beide testen, dazu die höchste
+MySQL-Version, die beide **zusammen mit dieser PHP-Version** testen.
+Node.js folgt derselben Regel. Stand v37: PHP 8.5, MySQL 8.4, Node.js 24
+(geprüft gegen Sylius 2.2.9 und Sulu 3.0.9).
+**Begründung:** Die Dokumentation reicht nicht: Sylius nennt nach oben
+offene Mindestversionen, Sulu nennt gar keine Datenbankversion. Und die
+Kombination zählt, weil Sulu nur feste Paare testet — MariaDB 11.4 und
+PHP 8.5 jeweils einzeln, aber nicht zusammen. Gemeinsam getestet ist mit
+PHP 8.5 nur MySQL 8.4. Eigene Tests (`make verify`, `make test-all`)
+bleiben zusätzlich Pflicht, ersetzen die Upstream-Absicherung aber nicht.
+**Konsequenzen:** MariaDB wurde verworfen. Neuere Versionen (PHP 8.6,
+MySQL 9.7) kommen erst, wenn beide Projekte sie in ihrer CI testen.
+Sulu ist auf `~3.0.9` begrenzt, damit kein ungetestetes 3.1 einzieht.
+`make setup` installiert weiterhin den geprüften Lock-Stand;
+Patch-Updates beim Projektstart sollen als eigener Schritt folgen
+(geplant für v38). Der MySQL Community Server steht unter GPLv2 — für
+gehostete Shops unkritisch; wird MySQL in ausgelieferte Software
+eingebettet oder mitgebündelt, ist das juristisch zu prüfen.

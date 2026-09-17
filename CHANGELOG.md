@@ -10,6 +10,35 @@ adapted for an internal kickstarter project rather than a public
 library, so there's no strict Added/Changed/Fixed split where it
 wouldn't add value.
 
+## [v37]
+
+- Decided: a fixed version rule (docs/decisions.md, ADR-11). The upstream
+  CI of Sylius **and** Sulu is the yardstick, not their documentation:
+  the highest PHP version both test, and the highest MySQL version both
+  test together with that PHP version. Node.js follows the same rule
+- Changed: PHP 8.3 → 8.5 (`frankenphp:1-php8.5` in the Dockerfile,
+  `docker-compose.yaml` and `.env.docker.example`)
+- Changed: MySQL 8.0 → 8.4 LTS. MySQL 8.0 reached end of life on
+  2026-04-30. MariaDB was evaluated and dropped: Sulu tests MariaDB 11.4
+  and PHP 8.5 only separately, never together
+- Changed: the database service is now called `database` (container
+  `ks_database`, volume `database_data`, init scripts under
+  `docker/database/init/`); the `MYSQL_*` variables keep their names
+- Fixed: both `DATABASE_URL`s carried the short form `serverVersion=8.0`;
+  now `8.4.0`. On the Sylius side (DBAL 3) that was only deprecated, but
+  Sulu resolves to DBAL 4, where `"8.0"` ranks below `"8.0.0"` — Sulu ran
+  with the platform for MySQL < 8 (FIXES.md No. 51)
+- Changed: Node.js 20 → 24 (Node 20 reached end of life on 2026-04-30)
+- Changed: `SULU_VERSION` default `^3.0` → `~3.0.9` — every 3.0.x patch,
+  no untested 3.1
+- Added: `make verify` section 17 keeps the database image tag, both
+  `serverVersion` values and the running server in step, and catches
+  leftovers of the old service name
+- Decided: `.github/` stays as inherited from the Sylius skeleton
+  (addendum to ADR-10)
+- Planned: patch updates at project start as a separate step, with a
+  Sulu lock file and a version report (backlog, P1 — v38)
+
 ## [v36]
 
 - Decided: no CI pipeline ships with this project. Platform choice

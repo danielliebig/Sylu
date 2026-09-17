@@ -1,10 +1,10 @@
-# 🎸 Sulu & Sylius Kickstarter (Version 36)
+# 🎸 Sulu & Sylius Kickstarter (Version 37)
 
 Content managed with **Sulu**, shop powered by **Sylius**, both behind a
 single Caddy router under one URL. Native on Apple Silicon and Linux x86_64.
 
-**Verified against:** Sulu 3.0.8, Sylius 2.2.8, Symfony 7.4.16, PHP 8.3.33,
-Docker arm64.
+**Verified against:** Sulu 3.0.9, Sylius 2.2.9, Symfony 7.4.18, PHP 8.5.10,
+MySQL 8.4.11, Node.js 24.21.0, Docker arm64.
 
 > Thirty-five bugs and architecture corrections since the first delivery
 > attempt are baked in — including a genuine infinite loop caused by a
@@ -218,7 +218,7 @@ hand in the admin afterward, or fix the fixtures directly.
 ├── docker/
 │   ├── php/Dockerfile, Caddyfile, conf.d/app.ini
 │   ├── caddy/Caddyfile
-│   ├── mysql/init/01-databases.sql
+│   ├── database/init/01-databases.sql
 │   └── scripts/
 │       ├── install-apps.sh          (overlay instead of no-clobber)
 │       └── verify.sh                (checks everything before install)
@@ -699,7 +699,7 @@ would report a false green.
 exclusively through Composer:
 
 ```bash
-composer.json    # declares WHAT (sylius/sylius-standard:^2.2, sulu/skeleton:^3.0, ...)
+composer.json    # declares WHAT (sylius/sylius-standard:^2.2, sulu/skeleton:~3.0.9, ...)
 composer.lock     # pins the EXACT version - CHECKED IN, not ignored
 vendor/           # the result of "composer install" - NOT checked in, .gitignore
 ```

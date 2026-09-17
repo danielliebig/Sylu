@@ -2,7 +2,7 @@
 # ===========================================================================
 #  First install: sets up Sylius (root) and Sulu (./sulu).
 #
-#  VERSION CHOICE - WHY SULU ^3.0:
+#  VERSION CHOICE - WHY SULU 3.0:
 #  Sulu 2.6 internally requires "symfony/proxy-manager-bridge ^5.4 || ^6.0" -
 #  a bridge deprecated since Symfony 5.4 that only exists up to Symfony 6.4.
 #  The rest of Sulu's own composer.json allows Symfony up to ^7.0, so
@@ -13,7 +13,11 @@
 #  that fills up memory, no matter how high memory_limit is set.
 #  Sulu 3.0 removed ProxyManager entirely (native Symfony lazy loading) and
 #  is officially supported on Symfony 6.4-7.4 - exactly the version the
-#  Sylius side here also uses. Hence ^3.0, not ^2.6.
+#  Sylius side here also uses. Hence 3.0, not 2.6.
+#
+#  Since v37 the default is ~3.0.9 instead of ^3.0: it still picks up
+#  every 3.0.x patch at install time, but no untested 3.1 (version rule:
+#  docs/decisions.md, ADR-11).
 #
 #  OVERLAY INSTEAD OF NO-CLOBBER:
 #  "cp -rn" protected our own files, but silently swallowed Sylius'
@@ -26,7 +30,7 @@ set -uo pipefail
 
 DC="docker compose -f docker-compose.yaml --env-file .env.docker"
 SYLIUS_VERSION="${SYLIUS_VERSION:-^2.2}"
-SULU_VERSION="${SULU_VERSION:-^3.0}"
+SULU_VERSION="${SULU_VERSION:-~3.0.9}"
 STASH=".kickstarter-overlay"
 
 g() { printf "\033[0;32m%s\033[0m\n" "$1"; }

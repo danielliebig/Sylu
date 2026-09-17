@@ -1,7 +1,7 @@
 # CLAUDE.md — Architecture and working documentation
 
-> **Version 36, verified against Sulu 3.0.8 / Sylius 2.2.8 / Symfony 7.4.16 /
-> PHP 8.3.33.** Every bug from previous attempts and its fix are recorded
+> **Version 37, verified against Sulu 3.0.9 / Sylius 2.2.9 / Symfony 7.4.18 /
+> PHP 8.5.10 / MySQL 8.4.11 / Node.js 24.21.0.** Every bug from previous attempts and its fix are recorded
 > in FIXES.md. Wherever this document disagrees with FIXES.md, FIXES.md
 > wins — especially point 10 (Sulu version), point 8 (service wiring via
 > `#[Autowire]` attributes instead of `services.yaml`), and point 16
@@ -115,8 +115,12 @@ environment:
 Paired with load testing and a close eye on static properties and the
 Doctrine identity map.
 
-Image tag is `1-php8.3`, not `1.2-php8.3`: patch tags occasionally
+Image tag is `1-php8.5`, not `1.2-php8.5`: patch tags occasionally
 disappear from the registry and break reproducible builds when they do.
+Which PHP version (and which MySQL and Node.js version) is chosen
+follows a fixed rule since v37: the highest version both Sylius and
+Sulu test in their upstream CI, the database in combination with that
+PHP version — see docs/decisions.md, ADR-11.
 
 ### 2.4 No hard-coded platform in docker-compose
 
@@ -163,6 +167,8 @@ compilation, until memory runs out. No amount of `memory_limit` tuning
 fixes this; it only postpones the crash. Sulu 3.0 removed ProxyManager
 entirely (native Symfony lazy loading) and is officially supported on
 Symfony 6.4–7.4. Full bug history with diagnostic path: FIXES.md No. 10.
+Since v37 the default is `~3.0.9`: every 3.0.x patch, but no untested
+3.1 (ADR-11).
 
 `make verify` now actively checks that `symfony/proxy-manager-bridge`
 isn't installed — if it shows up anyway, that's the early-warning sign
@@ -184,8 +190,8 @@ any manual invocation, or the defaults from the compose file take over.
 | `router` | caddy:2-alpine | main storefront port (80) + dedicated Sylius admin port (8082, see FIXES.md No. 28), subpath routing |
 | `sylius` | custom FrankenPHP image | shop, `APP_ROOT=/app/public`, mounts `.` |
 | `sulu` | same image | CMS, mounts `./sulu` |
-| `mysql` | mysql:8.0 | two databases, health check |
-| `redis` | redis:7-alpine | cache/session, 256 MB LRU |
+| `database` | mysql:8.4 | two databases, health check (`MYSQL_*` variables; `serverVersion` kept in step by `make verify` section 17, FIXES.md No. 51) |
+| `redis` | redis:7-alpine | runs (256 MB LRU), but is **not wired to either app** — Symfony cache and sessions use the filesystem; `config/packages/cache.yaml` is the unmodified recipe with Redis commented out. Redis 7.4 is licensed RSALv2/SSPLv1, not OSI open source. Kept as is by decision (v37) |
 | `mailpit` | axllent/mailpit | SMTP sink + web UI |
 | `phpmyadmin` | phpmyadmin:5-apache | DB inspection |
 

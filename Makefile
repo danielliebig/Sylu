@@ -1,6 +1,6 @@
 # ===========================================================================
 #  Sulu & Sylius Kickstarter  -  Makefile
-#  Verified against Sylius 2.2.8 / Symfony 7.4.16 / PHP 8.3.33
+#  Verified against Sylius 2.2.9 / Symfony 7.4.18 / PHP 8.5.10
 #
 #  First install, stage by stage (each individually repeatable):
 #      make docker-build
@@ -99,7 +99,7 @@ docker-start: ## Start containers, wait for MySQL
 	test -f .env.docker || cp .env.docker.example .env.docker
 	$(DC) up -d --remove-orphans
 	@printf "$(Y)Waiting for MySQL"
-	@until $(DC) exec -T mysql mysqladmin ping -h 127.0.0.1 --silent >/dev/null 2>&1; do printf "."; sleep 2; done
+	@until $(DC) exec -T database mysqladmin ping -h 127.0.0.1 --silent >/dev/null 2>&1; do printf "."; sleep 2; done
 	@printf " ready$(N)\n"
 	@$(MAKE) --no-print-directory info
 

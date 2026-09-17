@@ -2410,6 +2410,54 @@ this file is a record. arc42 ch. 10 is corrected.
 **Not changed:** the self-skip logic in the tests, and `make test`,
 which has no skip path and still echoes its recipe line.
 
+## 51. `serverVersion=8.0` in both DATABASE_URLs was a deprecated short form *(v37)*
+
+**Found while planning the MySQL 8.4 upgrade, not through a failure.**
+Both `DATABASE_URL`s in `docker-compose.yaml` carried
+`serverVersion=8.0`. Doctrine picks its SQL platform from that value,
+not from the server it actually talks to. Reading
+`Driver/AbstractMySQLDriver.php` in DBAL 3.10.6 (the version locked on
+the Sylius side) shows two
+things: the short form triggers a deprecation (*"Version detection
+logic for MySQL will change in DBAL 4. Please specify the version as
+the server reports it, e.g. "8.4.0" instead of "8.4""*), and a value
+that lags behind the image keeps generating SQL for the older platform
+without any error.
+
+**On the Sulu side it was worse than a deprecation.** The v37 test run
+showed that Sulu resolves to DBAL 4.4.4, not 3.x. DBAL 4 no longer
+normalizes the value; it compares it directly with PHP's
+`version_compare()`, which ranks `"8.0"` *below* `"8.0.0"`. So
+`serverVersion=8.0` failed the `>= 8.0.0` check and Sulu got DBAL's
+generic `MySQLPlatform` for MySQL < 8 — on a MySQL 8.0 server, with no
+visible error. (Verified: `version_compare("8.0", "8.0.0", ">=")` is
+`false`, `version_compare("8.4", "8.4.0", ">=")` is `false` as well.)
+The Sylius side on DBAL 3.10.6 normalizes the short form and picked the
+correct 8.0 platform, which is why nothing stood out there.
+
+The usual templates don't help: the Sulu CI itself uses
+`serverVersion=8.4`, which on DBAL 4 would select the 8.0 platform, not
+8.4, and Sylius' docs show `mariadb-<version>`, which DBAL deprecates as
+well. Neither is a safe template.
+
+**Fix:**
+
+- Both URLs now read `serverVersion=8.4.0`, matching `mysql:8.4`.
+- The service was renamed from `mysql` to `database` in the same
+  version (container `ks_database`, volume `database_data`, init
+  scripts under `docker/database/init/`). The `MYSQL_*` variables keep
+  the names the official image documents.
+- New `make verify` section 17 checks that the image tag, both
+  `serverVersion` values (x.y.z form, same major.minor) and the running
+  server agree, and that no line in `docker-compose.yaml` or the
+  `Makefile` still refers to a service named `mysql`. Tested against
+  the correct state and against eleven deliberately broken ones,
+  including the unchanged v36 files.
+
+**Not changed:** the fallback `DATABASE_URL` in `.env` and
+`compose.override.dist.yml` — both are Sylius skeleton files that the
+container environment overrides.
+
 ## What's structurally different
 
 **Verify before installing.** `make verify` tests classes, service IDs,

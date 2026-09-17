@@ -19,7 +19,7 @@
 .php_cs.cache
 .travis.yml
 composer.phar
-docker/mysql/data/
+docker/database/data/
 etc/build/*
 node_modules/
 var/*

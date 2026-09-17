@@ -10,13 +10,15 @@ Zielgruppe: erfahrene Entwickler, die das Gerüst übernehmen und pflegen.
 **Qualitätsziele:**
 | Ziel | Ausprägung im Projekt |
 |---|---|
-| Nachvollziehbarkeit | 49 dokumentierte Befunde mit Begründung (FIXES.md) |
+| Nachvollziehbarkeit | 51 dokumentierte Befunde mit Begründung (FIXES.md) |
 | Installierbarkeit | ein Befehl, Prüfung vorab, Tests nicht blockierend |
 | Robustheit | API-Ausfall führt zu leerer Liste, nie zu 500 |
 | Wartbarkeit | kein Vendor-Eingriff, Overlay-Prinzip |
 
 ## 2 Randbedingungen
-- Feste Versionen: Sulu 3.0.8, Sylius 2.2.8, Symfony 7.4.16, PHP 8.3.33
+- Getestete Versionen (v37): Sulu 3.0.9, Sylius 2.2.9, Symfony 7.4.18,
+  PHP 8.5.10, MySQL 8.4.11, Node.js 24.21.0 — Sylius über `composer.lock`
+  fest, Sulu beim Setup innerhalb `~3.0.9` aufgelöst; Auswahl nach ADR-11
 - Multi-Arch (Apple Silicon und x86_64), kein hartkodiertes Platform-Flag
 - Sulu 3 statt 2.6 (ProxyManager-Endlosschleife mit Symfony 7.4)
 - FrankenPHP ohne Worker-Mode
@@ -147,11 +149,12 @@ API-Werte werden einmal zentral verengt, statt an jeder Lesestelle
 gecastet.
 
 ### Prüfung vor Installation
-`make verify` mit 16 Abschnitten, inklusive Querverweis-Prüfungen
-zwischen Dateien (Template-Verweise, Route-Namen, Override-Ablageort).
+`make verify` mit 17 Abschnitten, inklusive Querverweis-Prüfungen
+zwischen Dateien (Template-Verweise, Route-Namen, Override-Ablageort)
+und der Konsistenz von Datenbank-Image und `serverVersion`.
 
 ## 9 Architekturentscheidungen
-Siehe `decisions.md` (ADR-01 bis ADR-09).
+Siehe `decisions.md` (ADR-01 bis ADR-11).
 
 ## 10 Qualitätsanforderungen
 

@@ -554,6 +554,92 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+b "17. Database version consistency (see FIXES.md No. 51)"
+# ---------------------------------------------------------------------------
+# The MySQL version lives in three places that must agree: the image tag
+# of the "database" service and serverVersion in both DATABASE_URLs.
+# Doctrine picks its SQL platform from serverVersion, not from the server
+# it talks to, so a stale value keeps generating SQL for the old version
+# without any error. The short form ("8.0", "8.4") is deprecated in DBAL 3
+# and silently wrong in DBAL 4, which the Sulu side uses: "8.0" ranks
+# below "8.0.0" there and selects the platform for MySQL < 8. DBAL wants
+# the version as the server reports it ("8.4.0"). Before v37 both
+# URLs carried the deprecated "8.0" (No. 51), and the service was renamed
+# from "mysql" to "database" in the same version, so leftovers of the old
+# name are checked too.
+DB_CHECK_FAILED=0
+SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+MINOR_RE='^[0-9]+\.[0-9]+'
+
+# --- a) image tag of the database service ----------------------------------
+DB_IMAGES=$(grep -E '^[[:space:]]+image:[[:space:]]*mysql:' docker-compose.yaml 2>/dev/null | sed -E 's/.*mysql:[[:space:]]*//; s/[[:space:]]*$//')
+DB_IMAGE_COUNT=$(printf '%s' "$DB_IMAGES" | grep -c . | tr -d ' ')
+DB_MINOR=""
+if [[ "$DB_IMAGE_COUNT" != "1" ]]; then
+  r "  Expected exactly one mysql image in docker-compose.yaml, found $DB_IMAGE_COUNT"
+  DB_CHECK_FAILED=1
+elif [[ "$DB_IMAGES" =~ $MINOR_RE ]]; then
+  DB_MINOR="${BASH_REMATCH[0]}"
+  g "  database image: mysql:$DB_IMAGES (major.minor $DB_MINOR)"
+else
+  r "  database image tag \"mysql:$DB_IMAGES\" has no major.minor version - pin at least x.y"
+  DB_CHECK_FAILED=1
+fi
+
+# --- b) host and serverVersion in every DATABASE_URL -----------------------
+URL_COUNT=0
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  URL_COUNT=$((URL_COUNT + 1))
+  host=$(printf '%s' "$line" | sed -E 's#.*@([^:/]+)[:/].*#\1#')
+  sv=$(printf '%s' "$line" | grep -oE 'serverVersion=[^&[:space:]]*' | sed 's/serverVersion=//')
+  if [[ "$host" != "database" ]]; then
+    r "  DATABASE_URL points to host \"$host\" instead of \"database\""
+    DB_CHECK_FAILED=1
+  fi
+  if [[ -z "$sv" ]]; then
+    r "  DATABASE_URL without serverVersion - Doctrine would have to guess the platform"
+    DB_CHECK_FAILED=1
+  elif ! [[ "$sv" =~ $SEMVER_RE ]]; then
+    r "  serverVersion=$sv is not in x.y.z form (deprecated by Doctrine DBAL, see No. 51)"
+    DB_CHECK_FAILED=1
+  elif [[ -n "$DB_MINOR" ]] && [[ "$sv" != "$DB_MINOR".* ]]; then
+    r "  serverVersion=$sv does not match the image mysql:$DB_IMAGES"
+    DB_CHECK_FAILED=1
+  else
+    g "  DATABASE_URL -> host $host, serverVersion=$sv"
+  fi
+done < <(grep -E '^[[:space:]]+DATABASE_URL:' docker-compose.yaml 2>/dev/null)
+if [[ $URL_COUNT -lt 2 ]]; then
+  r "  Expected a DATABASE_URL for both sylius and sulu in docker-compose.yaml, found $URL_COUNT"
+  DB_CHECK_FAILED=1
+fi
+
+# --- c) leftovers of the old service name "mysql" --------------------------
+LEFTOVER=$( { grep -nE '^[[:space:]]+mysql:[[:space:]]*$|PMA_HOST:[[:space:]]*mysql[[:space:]]*$' docker-compose.yaml 2>/dev/null | sed 's#^#docker-compose.yaml:#'; \
+              grep -nE 'exec[[:space:]]+(-T[[:space:]]+)?mysql([[:space:]]|$)' Makefile 2>/dev/null | sed 's#^#Makefile:#'; } )
+if [[ -n "$LEFTOVER" ]]; then
+  r "  The database service is called \"database\" now, but these lines still use \"mysql\":"
+  while IFS= read -r l; do [[ -n "$l" ]] && r "    $l"; done <<< "$LEFTOVER"
+  DB_CHECK_FAILED=1
+else
+  g "  No references to a service named \"mysql\" in docker-compose.yaml or Makefile"
+fi
+
+# --- d) the running server really is that version --------------------------
+DB_RUNNING=$($DC exec -T database mysqld --version 2>/dev/null | grep -oE 'Ver [0-9]+\.[0-9]+\.[0-9]+' | sed 's/Ver //')
+if [[ -z "$DB_RUNNING" ]]; then
+  y "  Running MySQL version could not be determined (is the database container up?) - skipped"
+elif [[ -n "$DB_MINOR" ]] && [[ "$DB_RUNNING" != "$DB_MINOR".* ]]; then
+  r "  Running server is MySQL $DB_RUNNING, but docker-compose.yaml asks for mysql:$DB_IMAGES"
+  r "  (container from an old image? try: make docker-stop && make docker-start)"
+  DB_CHECK_FAILED=1
+else
+  g "  Running server: MySQL $DB_RUNNING"
+fi
+[[ $DB_CHECK_FAILED -eq 1 ]] && FAILED=1
+
+# ---------------------------------------------------------------------------
 echo ""
 if [[ $FAILED -eq 0 ]]; then
   g "=== All green. Continue with: make fixtures ==="
