@@ -1,4 +1,4 @@
-# 🎸 Sulu & Sylius Kickstarter — Quickstart (Version 36, headless)
+# 🎸 Sulu & Sylius Kickstarter — Quickstart (Version 38, headless)
 
 This guide takes the project from an empty folder to a fully headless
 shop: **Sylius only supplies data through its API**, the entire visible

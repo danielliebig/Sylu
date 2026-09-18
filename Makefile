@@ -2,6 +2,10 @@
 #  Sulu & Sylius Kickstarter  -  Makefile
 #  Verified against Sylius 2.2.9 / Symfony 7.4.18 / PHP 8.5.10
 #
+#  Structure:  .        = this kickstarter (no application code)
+#              ./sylius = generated from sylius-overlay/
+#              ./sulu   = generated from sulu-overlay/
+#
 #  First install, stage by stage (each individually repeatable):
 #      make docker-build
 #      make install-apps
@@ -16,10 +20,12 @@
 
 SHELL := /bin/bash
 
-# -f explicitly: Sylius Standard ships its own compose.yml, which would
-#                otherwise take precedence.
-# --env-file:    .env belongs to Symfony, not docker compose.
-DC   := docker compose -f docker-compose.yaml --env-file .env.docker
+# -f explicitly:      both applications ship a compose.yml of their own; a
+#                     bare "docker compose" must not pick one of those up.
+# --env-file order:    versions.env first (generated, see kickstarter.yaml),
+#                     .env.docker second so local credentials win.
+#                     Plain .env belongs to Symfony, not to docker compose.
+DC   := docker compose -f docker-compose.yaml --env-file versions.env --env-file .env.docker
 SYL  := $(DC) exec -T sylius
 SULU := $(DC) exec -T sulu
 CSYL  := $(SYL)  php bin/console
@@ -46,7 +52,8 @@ B := \033[0;34m
 N := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help setup install-apps verify deps docker-build docker-start docker-stop \
+.PHONY: help setup install-apps verify deps versions freeze-locks \
+        sylius-theme docker-build docker-start docker-stop \
         docker-restart docker-destroy fixtures sulu-install sulu-theme fixtures-fallback \
         assets test-checkout cache-clear db-reset info logs \
         shell-sylius shell-sulu doctor products-off products-on reset-soft git-init \
@@ -70,11 +77,28 @@ setup: ## Complete first install - runs through to a finished shop
 # chain before "fixtures" in that case, and the verify output stays visible
 # at the top of the terminal. No "ignore the warning and continue anyway".
 
-install-apps: ## Set up Sylius (root) and Sulu (./sulu) - idempotent
+install-apps: ## Set up ./sylius and ./sulu from the overlays - idempotent
+	test -f .env.docker || cp .env.docker.example .env.docker
 	bash docker/scripts/install-apps.sh
 
+versions: ## Re-derive PHP/MySQL/Node from kickstarter.yaml into versions.env
+	bash docker/scripts/resolve-versions.sh
+	@printf "$(Y)>> Rebuild afterwards, the PHP image carries these versions:\n"
+	@printf "   make docker-build && make docker-start$(N)\n"
+
+freeze-locks: ## Copy composer.json/lock out of both apps into the overlays
+	@test -f sylius/composer.lock || { printf "$(R)sylius/composer.lock is missing - run make install-apps first$(N)\n"; exit 1; }
+	@test -f sulu/composer.lock   || { printf "$(R)sulu/composer.lock is missing - run make install-apps first$(N)\n"; exit 1; }
+	cp sylius/composer.json sylius/composer.lock sylius-overlay/
+	cp sulu/composer.json   sulu/composer.lock   sulu-overlay/
+	@printf "$(G)>> Locks frozen into the overlays.$(N)\n"
+	@printf "$(Y)   These two pairs are what make setup installs. Review the diff,\n"
+	@printf "   run make verify and make test-all, then commit.$(N)\n"
+
 verify: ## Check classes, service IDs and configuration - BEFORE fixtures
-	bash docker/scripts/verify.sh
+# Single sections while working on one of them:
+#     make verify SECTIONS="18 19"
+	bash docker/scripts/verify.sh $(SECTIONS)
 
 deps: ## Composer dependencies (without auto-scripts)
 	@printf "$(B)>> Sylius: composer install$(N)\n"
@@ -149,6 +173,13 @@ sulu-install: ## Sulu database + PHPCR + admin user + Sulu theme + demo content
 	@printf "   and publish it (content is already filled in).\n"
 	@printf "   Details: README.md, Integration section.$(N)\n"
 
+sylius-theme: ## Copy our own Sylius files into ./sylius (idempotent)
+	@test -d sylius-overlay || { printf "$(R)sylius-overlay/ is missing - package incomplete$(N)\n"; exit 1; }
+	@test -d sylius || { printf "$(R)./sylius doesn't exist yet - run make install-apps first$(N)\n"; exit 1; }
+	cp -r sylius-overlay/. sylius/
+	@printf "$(G)>> Sylius files copied (fixture, command, config, overrides)$(N)\n"
+	-$(CSYL) cache:clear
+
 sulu-theme: ## Copy Sulu theme + Sylius bridge into ./sulu (idempotent)
 	@test -d sulu-overlay || { printf "$(R)sulu-overlay/ is missing - package incomplete$(N)\n"; exit 1; }
 	@test -d sulu || { printf "$(R)./sulu doesn't exist yet - run make install-apps first$(N)\n"; exit 1; }
@@ -163,14 +194,14 @@ fixtures-fallback: ## Emergency exit: Sylius' default fixtures instead of ours
 	@$(MAKE) --no-print-directory assets
 
 products-off: ## Disable the product fixture (shop runs without products)
-	@test -f config/packages/dach_products.yaml \
-	  && mv config/packages/dach_products.yaml config/packages/dach_products.yaml.disabled \
+	@test -f sylius/config/packages/dach_products.yaml \
+	  && mv sylius/config/packages/dach_products.yaml sylius/config/packages/dach_products.yaml.disabled \
 	  && printf "$(Y)Product fixture disabled$(N)\n" || printf "already off\n"
 	$(CSYL) cache:clear
 
 products-on: ## Re-enable the product fixture
-	@test -f config/packages/dach_products.yaml.disabled \
-	  && mv config/packages/dach_products.yaml.disabled config/packages/dach_products.yaml \
+	@test -f sylius/config/packages/dach_products.yaml.disabled \
+	  && mv sylius/config/packages/dach_products.yaml.disabled sylius/config/packages/dach_products.yaml \
 	  && printf "$(G)Product fixture enabled$(N)\n" || printf "already on\n"
 	$(CSYL) cache:clear
 
@@ -185,7 +216,7 @@ payments-live: ## Switch checkout to the real Adyen gateway (see FIXES.md No. 30
 	  || { printf "$(R)ADYEN_API_KEY is empty in .env.docker - fill in real sandbox credentials first, then retry.$(N)\n"; exit 1; }
 	@printf "$(Y)If you just filled in the Adyen credentials, recreate the container first so it\n"
 	@printf "   picks up the new environment variables:\n"
-	@printf "     docker compose -f docker-compose.yaml --env-file .env.docker up -d --force-recreate sylius$(N)\n"
+	@printf "     docker compose -f docker-compose.yaml --env-file versions.env --env-file .env.docker up -d --force-recreate sylius$(N)\n"
 	$(CSYL) doctrine:query:sql "UPDATE sylius_payment_method SET is_enabled = 0 WHERE code IN ('paypal','klarna_invoice','credit_card')"
 	$(CSYL) doctrine:query:sql "UPDATE sylius_payment_method SET is_enabled = 1 WHERE code = 'adyen'"
 	$(CSYL) cache:clear
@@ -227,11 +258,10 @@ git-init: ## Create a local Git repository with a clean initial commit (once)
 		git add .; \
 		git commit -m "Sulu & Sylius Kickstarter: initial state (headless, catalog verified)" -q; \
 		printf "$(G)>> Repository created, initial commit made.$(N)\n"; \
-		printf "$(Y)>> Does NOT include: vendor/ (both apps), var/, node_modules/,\n"; \
-		printf "   .env.docker/.env.local (secrets) - see .gitignore.\n"; \
-		printf "   DOES include: composer.json + composer.lock from both apps,\n"; \
-		printf "   all custom code (config/packages/dach_*.yaml,\n"; \
-		printf "   src/Fixture/, src/Command/, sulu-overlay/), the Docker setup,\n"; \
+		printf "$(Y)>> Does NOT include: ./sylius and ./sulu (both generated),\n"; \
+		printf "   .env.docker (secrets) - see .gitignore.\n"; \
+		printf "   DOES include: kickstarter.yaml + versions.env, both overlays\n"; \
+		printf "   with their composer.json + composer.lock, the Docker setup,\n"; \
 		printf "   documentation.$(N)\n"; \
 		printf "   Details: README.md, \"For development teams\" section.\n"; \
 	fi
@@ -285,6 +315,8 @@ test-all: ## Unit tests, integration tests and smoke tests
 phpstan: ## Static analysis of this project's own PHP code (see FIXES.md No. 40)
 	@printf "$(B)>> Copying the overlay into ./sulu first - analysis runs on the copies$(N)\n"
 	@$(MAKE) --no-print-directory sulu-theme
+	@printf "$(B)>> Copying the Sylius overlay into ./sylius as well$(N)\n"
+	@$(MAKE) --no-print-directory sylius-theme
 	@printf "$(B)>> Sylius side: src/Fixture + src/Command (level 5)$(N)\n"
 	$(SYL) vendor/bin/phpstan analyse -c phpstan-kickstarter.dist.neon --no-progress
 	@printf "$(B)>> Sulu side: src + tests (Sulu's own config, level max)$(N)\n"

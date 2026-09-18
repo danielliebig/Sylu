@@ -1,0 +1,22 @@
+# ===========================================================================
+#  Kickstarter manifest — the only place where versions are chosen by hand.
+#
+#  These two Composer constraints define the whole stack. Everything else
+#  (PHP, MySQL, Node.js) is DERIVED from them by
+#  docker/scripts/resolve-versions.sh, which reads the public CI
+#  configuration of both upstream projects and writes versions.env.
+#
+#  Do not edit versions.env by hand — edit a constraint here and re-run
+#  "make versions".
+#
+#  Supported constraint syntax (intentionally narrow, so nothing is
+#  guessed): "~X.Y.Z" or an exact "X.Y.Z".
+#    ~2.2.9  ->  >= 2.2.9 and < 2.3.0   (patch updates only)
+#
+#  Why patch-only: ADR-11. A minor release of either project may ship an
+#  untested PHP or database combination, and Sulu 3.1 is explicitly out of
+#  scope until its CI covers what we run.
+# ===========================================================================
+
+sylius: "~2.2.9"
+sulu: "~3.0.9"

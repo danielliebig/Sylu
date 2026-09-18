@@ -1,10 +1,16 @@
-# 🎸 Sulu & Sylius Kickstarter (Version 37)
+# 🎸 Sulu & Sylius Kickstarter (Version 38)
 
 Content managed with **Sulu**, shop powered by **Sylius**, both behind a
 single Caddy router under one URL. Native on Apple Silicon and Linux x86_64.
 
 **Verified against:** Sulu 3.0.9, Sylius 2.2.9, Symfony 7.4.18, PHP 8.5.10,
 MySQL 8.4.11, Node.js 24.21.0, Docker arm64.
+
+Since v38 those versions are not maintained by hand. `kickstarter.yaml`
+holds two Composer constraints, one for Sylius and one for Sulu, and
+`make versions` derives PHP, MySQL and Node.js from the upstream CI of
+both projects into `versions.env` (version rule: docs/decisions.md,
+ADR-11 and ADR-12).
 
 > Thirty-five bugs and architecture corrections since the first delivery
 > attempt are baked in — including a genuine infinite loop caused by a
@@ -25,7 +31,8 @@ make setup
 ```
 
 Runs every stage automatically through to a finished shop **including
-Sulu**: build the image → set up Sylius (root) and Sulu 3.0 (`./sulu`) →
+Sulu**: build the image → generate Sylius (`./sylius`) and Sulu 3.0
+(`./sulu`) from their overlays →
 start containers → Composer dependencies → `verify` → Sylius DACH data and
 products → **`sulu:build dev`** (Sulu database, PHPCR, search index,
 `admin`/`admin` user) → 5 test orders. With 16 GB RAM and a decent
@@ -51,7 +58,7 @@ individually repeatable, nothing already done gets lost:
 
 ```bash
 make docker-build      # PHP image, ~5 min
-make install-apps      # Sylius into root, Sulu 3.0 into ./sulu, ~10 min
+make install-apps      # ./sylius and ./sulu from their overlays, ~10 min
 make docker-start      # containers up
 make deps              # composer install + cache:clear, both apps
 make verify             # <<< check the output — must be all green
@@ -77,15 +84,15 @@ every version:
 # optional: every version folder uses the same Docker project name and
 # therefore the same volumes, so a "fresh" folder would otherwise start
 # on the old database (see the pitfall list in docs/status/handoff.md)
-cd ~/Tools/sulu-sylius-kickstarter-vOLD
-docker compose -f docker-compose.yaml --env-file .env.docker down -v
+cd ~/Sites/Sylu/vOLD
+make docker-destroy
 
 # New folder, git history carried over
-mkdir -p ~/Tools/sulu-sylius-kickstarter-vNEXT
-cp -a ~/Tools/sulu-sylius-kickstarter-vOLD/.git ~/Tools/sulu-sylius-kickstarter-vNEXT/.git
-cd ~/Tools/sulu-sylius-kickstarter-vNEXT
+mkdir -p ~/Sites/Sylu/vNEXT
+cp -a ~/Sites/Sylu/vOLD/.git ~/Sites/Sylu/vNEXT/.git
+cd ~/Sites/Sylu/vNEXT
 
-tar xzf ~/Downloads/sulu-sylius-kickstarter-vNEXT.tar.gz
+tar xzf ~/Downloads/sylu-vNEXT.tar.gz
 chmod +x docker/scripts/*.sh
 cp .env.docker.example .env.docker
 make setup
@@ -192,7 +199,7 @@ hand in the admin afterward, or fix the fixtures directly.
 | Symptom | Fix |
 |---|---|
 | `no such service: sylius` | Sylius' own `compose.yml` collides → `make install-apps` moves it aside |
-| `framework.workflows.workflows.sylius_payment` | `config/packages/_sylius.yaml` got overwritten → see FIXES.md No. 3 |
+| `framework.workflows.workflows.sylius_payment` | `sylius/config/packages/_sylius.yaml` got overwritten → see FIXES.md No. 3 |
 | `Unrecognized option ... under sylius_*` | Outdated key from Sylius 1.x → remove the block, reference in `var/reference/` |
 | `Cannot autowire service App\...` | Should no longer happen (attributes instead of `services.yaml`) → `make verify` section 7 |
 | Sulu `cache:clear` eats memory until it dies | `make verify` section 7 checks for `symfony/proxy-manager-bridge` → see FIXES.md No. 10 |
@@ -208,11 +215,20 @@ hand in the admin afterward, or fix the fixtures directly.
 
 ## 📁 Structure
 
+The repository root is the kickstarter itself and holds no application
+code. Each application is generated from its upstream skeleton plus
+everything we own, which lives in its overlay. Both application folders
+are in `.gitignore`.
+
 ```
 .
+├── kickstarter.yaml             (the only versions chosen by hand:
+│                                 Sylius and Sulu)
+├── versions.env                 (generated: PHP, MySQL, Node - derived
+│                                 from those two, see make versions)
 ├── docker-compose.yaml
 ├── Makefile
-├── README.md / CLAUDE.md / FIXES.md
+├── README.md / CLAUDE.md / FIXES.md / CHANGELOG.md / QUICKSTART.md
 ├── .env.docker.example          (docker compose; .env belongs to Symfony!)
 │
 ├── docker/
@@ -220,28 +236,47 @@ hand in the admin afterward, or fix the fixtures directly.
 │   ├── caddy/Caddyfile
 │   ├── database/init/01-databases.sql
 │   └── scripts/
-│       ├── install-apps.sh          (overlay instead of no-clobber)
-│       └── verify.sh                (checks everything before install)
+│       ├── install-apps.sh          (skeleton + overlay per application)
+│       ├── resolve-versions.sh      (reads the upstream CI)
+│       └── verify.sh                (20 sections, individually callable)
 │
-├── config/
-│   └── packages/
-│       ├── dach_demo.yaml               (channels, taxes, taxonomy)
-│       ├── dach_products.yaml           (products - can be switched off)
-│       └── sylius_shipping_payment.yaml (shipping, payment)
+├── sylius-overlay/                  (copied into ./sylius)
+│   ├── composer.json / composer.lock    (the reviewed dependency set)
+│   ├── config/packages/
+│   │   ├── dach_demo.yaml               (channels, taxes, taxonomy)
+│   │   ├── dach_products.yaml           (products - can be switched off)
+│   │   └── sylius_shipping_payment.yaml (shipping, payment)
+│   ├── src/Fixture/RockbandProductsFixture.php   (#[Autowire] attributes)
+│   ├── src/Command/CreateTestOrdersCommand.php   (#[Autowire] attributes)
+│   ├── templates/bundles/               (Sylius bundle template overrides -
+│   │                                     belongs here, NOT in sulu-overlay:
+│   │                                     Sylius renders these, FIXES.md No. 45)
+│   ├── phpstan-kickstarter.dist.neon
+│   └── var/demo-images/                 (own product photos, optional)
 │
-├── src/
-│   ├── Fixture/RockbandProductsFixture.php   (#[Autowire] attributes)
-│   └── Command/CreateTestOrdersCommand.php   (#[Autowire] attributes)
+├── sulu-overlay/                    (copied into ./sulu)
+│   ├── composer.json / composer.lock    (the reviewed dependency set)
+│   └── ...                              (theme, catalog, Sylius bridge,
+│                                         60 tests)
 │
-├── templates/bundles/                   (Sylius bundle template overrides -
-│                                         belongs here, NOT in sulu-overlay:
-│                                         Sylius renders these, see FIXES.md No. 45)
-│
-├── sulu-overlay/                        (Sulu theme, catalog, Sylius bridge -
-│                                          copied into ./sulu by "make sulu-theme")
-│
-└── sulu/                                (after make install-apps, Sulu 3.0)
+├── sylius/                          (generated - not in the repository)
+└── sulu/                            (generated - not in the repository)
 ```
+
+Everything under `sylius-overlay/` and `sulu-overlay/` is ours;
+everything else inside `sylius/` and `sulu/` comes from upstream. That
+separation is what the old structure lacked: up to v37 Sylius lived in
+the repository root, mixed in with the kickstarter's own files, and the
+installer had to snapshot and restore them around itself (docs/decisions.md,
+ADR-12).
+
+Two files inside the Sylius app are neither ours nor untouched: the
+installer patches `config/packages/security.yaml` and
+`config/parameters.yaml` instead of overlaying them, so that upstream
+changes in those files are not frozen by us. Only the locale patch
+actually changes anything today — Sylius 2.2 has no `/checkout` entry in
+`security.yaml` at all, so don't go looking for that edit (FIXES.md
+No. 53).
 
 Fixture and Command wire themselves entirely through
 `#[Autowire(service: '...')]` attributes right on the constructor — there
@@ -542,7 +577,7 @@ called, not a bug — it falls back reliably. To check whether the API
 itself is reachable:
 
 ```bash
-docker compose -f docker-compose.yaml --env-file .env.docker exec -T sulu \
+docker compose -f docker-compose.yaml --env-file versions.env --env-file .env.docker exec -T sulu \
   bash -c 'curl -s -H "Host: localhost" -H "Accept: application/ld+json" \
     http://sylius/api/v2/shop/products?itemsPerPage=1 | head -c 500'
 ```
@@ -573,7 +608,7 @@ reason (e.g. a very old install without this feature), it can be run
 separately at any time:
 
 ```bash
-docker compose -f docker-compose.yaml --env-file .env.docker exec -T sulu \
+docker compose -f docker-compose.yaml --env-file versions.env --env-file .env.docker exec -T sulu \
   bash -c 'php bin/console app:seed-homepage'
 ```
 
@@ -614,7 +649,7 @@ make phpstan
 ```
 
 Runs PHPStan against this project's own PHP code — level 5 on the
-Sylius side (`src/Fixture/`, `src/Command/`, config in
+Sylius side (`sylius-overlay/src/Fixture/`, `src/Command/`, config in
 `phpstan-kickstarter.dist.neon`) and Sulu's own `max` level on the
 overlay classes. Both pass clean.
 
@@ -699,16 +734,33 @@ would report a false green.
 exclusively through Composer:
 
 ```bash
-composer.json    # declares WHAT (sylius/sylius-standard:^2.2, sulu/skeleton:~3.0.9, ...)
-composer.lock     # pins the EXACT version - CHECKED IN, not ignored
-vendor/           # the result of "composer install" - NOT checked in, .gitignore
+kickstarter.yaml               # declares the INTENT: two constraints
+<app>-overlay/composer.json    # the application's own declaration
+<app>-overlay/composer.lock    # pins the EXACT versions - CHECKED IN
+<app>/vendor/                  # result of "composer install" - NOT checked in
 ```
 
-`composer.lock` is deliberately **not** ignored: without it, every
-developer (and every fresh install) could end up with different package
-versions — exactly the kind of version drift that slowed this project
-down repeatedly (see FIXES.md). With a checked-in `composer.lock`,
-`composer install` always installs the exact same versions.
+Both `composer.lock` files are deliberately checked in: without them,
+every developer (and every fresh install) could end up with different
+package versions — exactly the kind of version drift that slowed this
+project down repeatedly (see FIXES.md). `make setup` always installs
+from the reviewed lock, never from a fresh resolution.
+
+The two layers do different jobs. `kickstarter.yaml` is the shopping
+list, `composer.lock` is the receipt. Changing the list is an explicit
+step:
+
+```bash
+make versions        # re-derive PHP/MySQL/Node from the upstream CI
+make docker-build    # the PHP image carries those versions
+make deps            # resolve the new dependency set
+make verify && make test-all
+make freeze-locks    # write the new locks back into the overlays
+```
+
+Until `make freeze-locks` runs, nothing about the reviewed state has
+changed — which is the point: the new versions have to pass the tests
+first.
 
 **All custom code lives structurally separate from vendor code** — not as
 patches on top of `vendor/`, but in the app-native directories meant for
@@ -716,14 +768,21 @@ exactly this purpose:
 
 | Where | What |
 |---|---|
-| `config/packages/dach_demo.yaml`, `sylius_shipping_payment.yaml`, `dach_products.yaml` | Sylius: DACH configuration |
-| `src/Fixture/`, `src/Command/` | Sylius: custom fixture and console classes |
-| `sulu-overlay/` | Sulu: template, theme, catalog controller, Sylius bridge — copied into `./sulu/config`, `./sulu/src`, `./sulu/templates`, `./sulu/public` by `make sulu-theme` |
+| `sylius-overlay/config/packages/dach_demo.yaml`, `sylius_shipping_payment.yaml`, `dach_products.yaml` | Sylius: DACH configuration |
+| `sylius-overlay/src/Fixture/`, `src/Command/` | Sylius: custom fixture and console classes |
+| `sylius-overlay/templates/bundles/` | Sylius: bundle template overrides |
+| `sulu-overlay/` | Sulu: template, theme, catalog controller, Sylius bridge, tests |
 
-Updating Sylius or Sulu works exactly like in any normal Symfony project:
-`composer update sylius/sylius-standard`, or inside the `sulu/` folder
-`composer update sulu/sulu` — with no risk of losing custom changes,
-because none of that code lives inside `vendor/`.
+Each overlay is copied into its application by `make sylius-theme` and
+`make sulu-theme`, and by `make install-apps` as part of the install. The
+overlay is the source of truth: a change made directly inside `sylius/`
+or `sulu/` is lost on the next copy, and `make verify` section 19 reports
+an overlay file that has not arrived in its application.
+
+Updating Sylius or Sulu means editing the constraint in
+`kickstarter.yaml` and running the five steps above — no risk of losing
+custom changes, because none of that code lives inside `vendor/` or in a
+generated folder.
 
 ### Local Git repository
 
@@ -734,16 +793,16 @@ make git-init
 ```
 
 Creates a repository in the project root and makes an initial commit with
-everything a repo should contain — **not** `vendor/`, `var/`,
-`node_modules/`, or `.env.docker`/`.env.local` (secrets), but **very much
-including** `composer.json` + `composer.lock` from both apps and all
-custom code. Deliberately not an automatic part of `make setup` —
+everything a repo should contain — **not** the two generated application
+folders `sylius/` and `sulu/` and not `.env.docker` (secrets), but **very
+much including** `kickstarter.yaml`, `versions.env`, both overlays with
+their `composer.json` + `composer.lock`, and all custom code. Deliberately not an automatic part of `make setup` —
 initializing a Git repository should be a conscious decision, not a
 silent side effect (e.g. if a remote repository is already prepared to
 clone into instead).
 
 **One repository for both apps, not three separate ones:** Sylius
-(project root) and Sulu (`./sulu`) are one cohesive product here — a
+(`./sylius`) and Sulu (`./sulu`) are one cohesive product here — a
 kickstarter for one shop, not two independently deployed services with
 separate teams. A single repository keeps changes that span both systems
 (like the entire headless rebuild in this project) traceable through one

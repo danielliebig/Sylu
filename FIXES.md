@@ -2458,6 +2458,55 @@ well. Neither is a safe template.
 `compose.override.dist.yml` — both are Sylius skeleton files that the
 container environment overrides.
 
+## 52. Own product photos never reached the container *(v38)*
+
+**Symptom:** README promised that a photo dropped into
+`var/demo-images/<product-code>.jpg` would be used by the fixture instead
+of the generated placeholder. It never was — the fixture always drew the
+icon placeholder, without any error.
+
+**Cause:** `docker-compose.yaml` mounts the named volume `sylius_var` at
+`/app/var`, on top of the bind mount of the application folder. A named
+volume takes precedence at its mount point, and when it is created empty
+Docker copies content from the *image*, not from the bind mount. So
+everything the host wrote under `var/` was invisible inside the
+container, including the photos. The generated placeholders were visible
+because the fixture writes them from inside the container, into the
+volume.
+
+**Fix:** `install-apps.sh` seeds the photos through a container of its
+own, mounting `sylius-overlay/var/demo-images` at `/seed` and copying
+from there into `/app/var/demo-images`. Verified by file size: 5447 bytes
+on the host, 5447 bytes in the container.
+
+**Lesson:** a bind mount and a named volume on the same path is not a
+merge. The more specific mount wins, and the one below it is simply gone
+— silently, which is why this survived several versions.
+
+## 53. The guest-checkout patch had been a no-op since version 1 *(v38)*
+
+**Symptom:** While rewriting `install-apps.sh` for v38 the patch that
+sets `/checkout` to `PUBLIC_ACCESS` was made strict — abort instead of
+continue when the expected pattern is not found. The install then aborted
+immediately: `neither ROLE_USER nor PUBLIC_ACCESS found for /checkout`.
+
+**Cause:** Sylius 2.2's skeleton has no `access_control` entry for
+`/checkout` at all. It has entries for `/login`, `/register`, `/verify`
+and `/account`, and checkout is simply public. The patch had therefore
+never changed anything, in any version — the old code reported "guest
+checkout OK or entry not present" and moved on, which read like a
+successful check.
+
+**Fix:** the patch now distinguishes four states. No entry: nothing to
+do. `ROLE_USER`: patch it. `PUBLIC_ACCESS`: already correct. Any other
+role: abort, because that is the case where the patch would silently do
+nothing and guest checkout would break.
+
+**Lesson:** two failure modes hid behind one message. Making a check
+strict is only safe after confirming what the expected state actually is
+upstream — the strict version was shipped without that check, and turned
+the normal case into a fatal error.
+
 ## What's structurally different
 
 **Verify before installing.** `make verify` tests classes, service IDs,

@@ -1,6 +1,6 @@
 # CLAUDE.md — Architecture and working documentation
 
-> **Version 37, verified against Sulu 3.0.9 / Sylius 2.2.9 / Symfony 7.4.18 /
+> **Version 38, verified against Sulu 3.0.9 / Sylius 2.2.9 / Symfony 7.4.18 /
 > PHP 8.5.10 / MySQL 8.4.11 / Node.js 24.21.0.** Every bug from previous attempts and its fix are recorded
 > in FIXES.md. Wherever this document disagrees with FIXES.md, FIXES.md
 > wins — especially point 10 (Sulu version), point 8 (service wiring via
@@ -28,13 +28,30 @@ x86_64 as the demo/production server. Same images, no emulation.
 
 ## 2. Architectural decisions
 
-### 2.1 Root = Sylius, `sulu/` = Sulu
+### 2.1 Kickstarter in the root, `sylius/` and `sulu/` generated
 
-The spec references `config/packages/…`, `src/Command/…`, and
-`fixtures/…` without a prefix. That only works if one of the two apps
-lives in the project root. Sylius was chosen, because that's where most
-of the project logic lives (fixtures, checkout, test command) and Sulu
-mainly supplies content in this demo.
+Since v38 the repository root holds no application code. Both
+applications are created by `docker/scripts/install-apps.sh` from their
+upstream skeleton plus an overlay, and both folders are in `.gitignore`:
+
+| Path | Role |
+|---|---|
+| `kickstarter.yaml` | two Composer constraints - the only hand-picked versions |
+| `versions.env` | generated: PHP, MySQL, Node (`make versions`) |
+| `sylius-overlay/` | everything of ours for Sylius, incl. `composer.json` + `composer.lock` |
+| `sulu-overlay/` | everything of ours for Sulu, incl. `composer.json` + `composer.lock` |
+| `sylius/`, `sulu/` | generated applications, not in the repository |
+
+Up to v37 Sylius lived in the root and the spec's unprefixed paths
+(`config/packages/…`, `src/Command/…`) referred to it directly. Those
+paths now mean `sylius/config/packages/…` at runtime, and
+`sylius-overlay/config/packages/…` as the source of truth. Editing
+inside `sylius/` is pointless: the next `make sylius-theme` or
+`make install-apps` overwrites it, and `make verify` section 19 reports
+any overlay file that has not arrived in its application.
+
+Why the versions are derived rather than written down: docs/decisions.md,
+ADR-11 and ADR-12.
 
 Why two separate apps at all: in a shared codebase, Sulu and Sylius
 collide in several places — two security firewalls with their own user
@@ -167,8 +184,10 @@ compilation, until memory runs out. No amount of `memory_limit` tuning
 fixes this; it only postpones the crash. Sulu 3.0 removed ProxyManager
 entirely (native Symfony lazy loading) and is officially supported on
 Symfony 6.4–7.4. Full bug history with diagnostic path: FIXES.md No. 10.
-Since v37 the default is `~3.0.9`: every 3.0.x patch, but no untested
-3.1 (ADR-11).
+The constraint lives in `kickstarter.yaml` and is `~3.0.9`: every 3.0.x
+patch, but no untested 3.1 (ADR-11). What actually gets installed is
+pinned by `sulu-overlay/composer.lock`; the constraint only decides what
+a `make versions` run may move to.
 
 `make verify` now actively checks that `symfony/proxy-manager-bridge`
 isn't installed — if it shows up anyway, that's the early-warning sign
@@ -279,7 +298,7 @@ access_control:
 ```
 
 If that line says `ROLE_USER` instead, the guest gets forced into
-registration. `install-apps.sh` checks for this and warns.
+registration. `make verify` section 7 checks for this and warns.
 
 **Version note:** the command and the fixture use Sylius 2.x namespaces
 (`Sylius\Abstraction\StateMachine\StateMachineInterface`,

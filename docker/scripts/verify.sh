@@ -10,9 +10,14 @@
 # ===========================================================================
 set -uo pipefail
 
-DC="docker compose -f docker-compose.yaml --env-file .env.docker"
+DC="docker compose -f docker-compose.yaml --env-file versions.env --env-file .env.docker"
 RUN="$DC exec -T sylius"
 FAILED=0
+
+# The two generated applications. Host paths need the prefix, container
+# paths (/app/...) do not - the bind mount puts each app at /app.
+SYLIUS_DIR="sylius"
+SULU_DIR="sulu"
 
 g() { printf "\033[0;32m%s\033[0m\n" "$1"; }
 r() { printf "\033[0;31m%s\033[0m\n" "$1"; }
@@ -22,14 +27,62 @@ b() { printf "\n\033[0;34m== %s ==\033[0m\n" "$1"; }
 mkdir -p var/reference
 
 # ---------------------------------------------------------------------------
+#  Section 0 runs always: it establishes what CAN be checked at all.
+#
+#  Before v38 every section ran unconditionally. With Docker stopped that
+#  produced nineteen sections of missing classes, missing service IDs and
+#  missing files - and the one line that mattered ("the Docker daemon is
+#  not running") scrolled past at the very top. Now the prerequisites come
+#  first, and whatever cannot be checked is skipped with a single line
+#  instead of a wall of false findings.
+# ---------------------------------------------------------------------------
+DOCKER_UP=0
+APPS_PRESENT=0
+CONTAINERS_UP=0
+
+section_0() {
+  b "0. Prerequisites"
+
+  if docker info >/dev/null 2>&1; then
+    DOCKER_UP=1
+    g "  Docker daemon reachable"
+  else
+    r "  Docker daemon not reachable - start Docker, then retry"
+    FAILED=1
+  fi
+
+  if [[ -f "$SYLIUS_DIR/composer.json" ]] && [[ -f "$SULU_DIR/composer.json" ]]; then
+    APPS_PRESENT=1
+    g "  ./$SYLIUS_DIR and ./$SULU_DIR present"
+  else
+    r "  application folders incomplete - run: make install-apps"
+    FAILED=1
+  fi
+
+  if [[ $DOCKER_UP -eq 1 ]]; then
+    RUNNING="$($DC ps --services --filter status=running 2>/dev/null)"
+    if grep -q "^sylius$" <<< "$RUNNING" && grep -q "^sulu$" <<< "$RUNNING"; then
+      CONTAINERS_UP=1
+      g "  containers sylius and sulu running"
+    else
+      r "  containers not running - run: make docker-start"
+      FAILED=1
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
+section_1() {
 b "1. Versions"
 # ---------------------------------------------------------------------------
 $RUN php -v 2>/dev/null | head -1
 $RUN composer show --locked 2>/dev/null \
   | grep -E "^(sylius/sylius|symfony/framework-bundle|doctrine/orm|sylius/fixtures-bundle) " \
   || y "  (composer.lock doesn't exist yet)"
+}
 
 # ---------------------------------------------------------------------------
+section_2() {
 b "2. PHP classes"
 # ---------------------------------------------------------------------------
 $RUN php -r '
@@ -54,8 +107,10 @@ foreach ($c as $x) {
 }
 exit($bad > 0 ? 1 : 0);
 ' 2>/dev/null || { r "  -> Classes are missing. Please send the output."; FAILED=1; }
+}
 
 # ---------------------------------------------------------------------------
+section_3() {
 b "3. Service IDs (verified against Sylius 2.2.8)"
 # ---------------------------------------------------------------------------
 # This list wasn't guessed - it was cross-checked against a running
@@ -107,8 +162,10 @@ if [[ -n "$MISSING" ]]; then
     echo "    make shell-sylius -> php bin/console debug:container | grep $short"
   done
 fi
+}
 
 # ---------------------------------------------------------------------------
+section_4() {
 b "4. Saving the fixture reference"
 # ---------------------------------------------------------------------------
 if $RUN php bin/console config:dump-reference sylius_fixtures \
@@ -117,11 +174,13 @@ if $RUN php bin/console config:dump-reference sylius_fixtures \
 else
   y "  config:dump-reference failed (kernel not booting yet?)"
 fi
+}
 
 # ---------------------------------------------------------------------------
+section_5() {
 b "5. Guest checkout"
 # ---------------------------------------------------------------------------
-SEC="config/packages/security.yaml"
+SEC="$SYLIUS_DIR/config/packages/security.yaml"
 if [[ -f "$SEC" ]]; then
   LINE=$(grep -n "shop_regex%/checkout" "$SEC" 2>/dev/null)
   if [[ -z "$LINE" ]]; then
@@ -138,9 +197,11 @@ if [[ -f "$SEC" ]]; then
 else
   y "  $SEC not found."
 fi
+}
 
 # ---------------------------------------------------------------------------
-b "6. Default locale (config/parameters.yaml)"
+section_6() {
+b "6. Default locale ($SYLIUS_DIR/config/parameters.yaml)"
 # ---------------------------------------------------------------------------
 # The Symfony skeleton default is "en_US" and propagates to several global
 # parameters (sylius_locale.locale, sylius_money.locale,
@@ -148,19 +209,22 @@ b "6. Default locale (config/parameters.yaml)"
 # /shop/ -> /shop/en_US/), BEFORE a channel is determined from the
 # hostname - regardless of what the channel DB says for default_locale_id.
 # See FIXES.md No. 14.
-if [[ -f config/parameters.yaml ]]; then
-  if grep -q "locale: en_US" config/parameters.yaml; then
-    r "  config/parameters.yaml is set to en_US - /shop/ redirects to en_US"
+PARAMS="$SYLIUS_DIR/config/parameters.yaml"
+if [[ -f "$PARAMS" ]]; then
+  if grep -q "locale: en_US" "$PARAMS"; then
+    r "  $PARAMS is set to en_US - /shop/ redirects to en_US"
     r "  instead of de_DE, even though the channel configuration is correct."
     FAILED=1
   else
-    g "  config/parameters.yaml: locale set correctly"
+    g "  $PARAMS: locale set correctly"
   fi
 else
-  y "  config/parameters.yaml not found"
+  y "  $PARAMS not found"
 fi
+}
 
 # ---------------------------------------------------------------------------
+section_7() {
 b "7. Sulu version / Symfony compatibility"
 # ---------------------------------------------------------------------------
 # Sulu 2.6 + Symfony 7.4 produced a broken mixed install
@@ -176,32 +240,46 @@ else
   g "  symfony/proxy-manager-bridge not present (expected)"
 fi
 $DC_RUN bash -c "composer show sulu/sulu 2>/dev/null | grep versions" || y "  Sulu version could not be determined (is the container running?)"
+}
 
 # ---------------------------------------------------------------------------
+section_8() {
 b "8. Configuration collisions"
 # ---------------------------------------------------------------------------
 for f in compose.yml compose.yaml compose.override.yml; do
   [[ -f "$f" ]] && { r "  $f exists - collides with docker-compose.yaml!"; FAILED=1; }
 done
-[[ -f config/packages/_sylius.yaml ]] \
-  && { grep -q "Kickstarter\|dach_demo" config/packages/_sylius.yaml 2>/dev/null \
-       && { r "  config/packages/_sylius.yaml has been overwritten!"; FAILED=1; } \
-       || g "  config/packages/_sylius.yaml is Sylius' original"; }
+[[ -f "$SYLIUS_DIR/config/packages/_sylius.yaml" ]] \
+  && { grep -q "Kickstarter\|dach_demo" "$SYLIUS_DIR/config/packages/_sylius.yaml" 2>/dev/null \
+       && { r "  $SYLIUS_DIR/config/packages/_sylius.yaml has been overwritten!"; FAILED=1; } \
+       || g "  $SYLIUS_DIR/config/packages/_sylius.yaml is Sylius' original"; }
 # Fixture/Command have wired themselves via #[Autowire] attributes directly
 # in PHP code since version 2.2 - an entry in services.yaml would now
 # actually be a red flag (a duplicate, possibly conflicting definition).
-if grep -q "RockbandProductsFixture\|CreateTestOrdersCommand" config/services.yaml 2>/dev/null; then
+if grep -q "RockbandProductsFixture\|CreateTestOrdersCommand" "$SYLIUS_DIR/config/services.yaml" 2>/dev/null; then
   r "  services.yaml still contains an old service definition -> remove it"
   r "  (fixture/command wire themselves via the #[Autowire] attribute)"
   FAILED=1
 else
   g "  services.yaml clean - no leftover service definition"
 fi
-grep -q "#\[Autowire" src/Fixture/RockbandProductsFixture.php 2>/dev/null \
-  && g "  RockbandProductsFixture uses #[Autowire] attributes" \
-  || y "  RockbandProductsFixture found without #[Autowire] - an old version?"
+# "File missing" and "file present but wrong" are different findings. The
+# old single-line check reported the second for both, which sent us
+# looking for an outdated fixture when in fact the overlay had simply not
+# been copied yet.
+FIXTURE="$SYLIUS_DIR/src/Fixture/RockbandProductsFixture.php"
+if [[ ! -f "$FIXTURE" ]]; then
+  r "  $FIXTURE does not exist - run make sylius-theme"
+  FAILED=1
+elif grep -q "#\[Autowire" "$FIXTURE"; then
+  g "  RockbandProductsFixture uses #[Autowire] attributes"
+else
+  y "  RockbandProductsFixture has no #[Autowire] attribute - an old version?"
+fi
+}
 
 # ---------------------------------------------------------------------------
+section_9() {
 b "9. Caddy router: base configuration"
 # ---------------------------------------------------------------------------
 # Unlike the earlier nginx setup (FIXES.md No. 15), there's no Host-header
@@ -236,8 +314,10 @@ if [[ -f "$CADDYFILE" ]]; then
 else
   y "  $CADDYFILE not found"
 fi
+}
 
 # ---------------------------------------------------------------------------
+section_10() {
 b "10. Sulu-Sylius integration (sulu-overlay/)"
 # ---------------------------------------------------------------------------
 # A pure existence/consistency check, not a behavior test - whether the
@@ -288,23 +368,25 @@ if [[ -d sulu-overlay ]]; then
 else
   y "  sulu-overlay/ not found (integration missing from the package)"
 fi
+}
 
 # ---------------------------------------------------------------------------
+section_11() {
 b "11. Adyen payment gateway configuration (see FIXES.md No. 30)"
 # ---------------------------------------------------------------------------
 # Read-only sanity checks - not a substitute for actually testing a
 # payment with real sandbox credentials, which this script can't do.
-if grep -q "gatewayFactory: .adyen." config/packages/sylius_shipping_payment.yaml 2>/dev/null; then
+if grep -q "gatewayFactory: .adyen." "$SYLIUS_DIR/config/packages/sylius_shipping_payment.yaml" 2>/dev/null; then
   g "  Adyen payment method fixture present"
 else
-  r "  Adyen payment method missing from config/packages/sylius_shipping_payment.yaml"
+  r "  Adyen payment method missing from $SYLIUS_DIR/config/packages/sylius_shipping_payment.yaml"
   FAILED=1
 fi
 
-if grep -A8 "code: .adyen." config/packages/sylius_shipping_payment.yaml 2>/dev/null | grep -q "enabled: false"; then
+if grep -A8 "code: .adyen." "$SYLIUS_DIR/config/packages/sylius_shipping_payment.yaml" 2>/dev/null | grep -q "enabled: false"; then
   g "  Adyen starts disabled by default (safe - demo mode is the default)"
 else
-  y "  Could not confirm Adyen starts disabled - check config/packages/sylius_shipping_payment.yaml"
+  y "  Could not confirm Adyen starts disabled - check $SYLIUS_DIR/config/packages/sylius_shipping_payment.yaml"
 fi
 
 if grep -q "payment/adyen" docker/caddy/Caddyfile 2>/dev/null; then
@@ -331,15 +413,17 @@ else
   FAILED=1
 fi
 
-if [[ -f "templates/bundles/SyliusShopBundle/order/thank_you.html.twig" ]]; then
+if [[ -f "$SYLIUS_DIR/templates/bundles/SyliusShopBundle/order/thank_you.html.twig" ]]; then
   g "  Sylius thank-you template override present (redirects to our own confirmation page)"
 else
-  r "  Missing templates/bundles/SyliusShopBundle/order/thank_you.html.twig"
+  r "  Missing $SYLIUS_DIR/templates/bundles/SyliusShopBundle/order/thank_you.html.twig"
   r "  Without it, a customer would briefly see Sylius' own confirmation page after paying (see FIXES.md No. 33)"
   FAILED=1
 fi
+}
 
 # ---------------------------------------------------------------------------
+section_12() {
 b "12. Server portability and mail polish (see FIXES.md No. 34)"
 # ---------------------------------------------------------------------------
 if grep -q '{host}:8082' docker/caddy/Caddyfile 2>/dev/null; then
@@ -350,16 +434,16 @@ else
   FAILED=1
 fi
 
-if grep -q "sylius_mailer:" config/packages/dach_demo.yaml 2>/dev/null; then
+if grep -q "sylius_mailer:" "$SYLIUS_DIR/config/packages/dach_demo.yaml" 2>/dev/null; then
   g "  Custom mail sender configured (overrides Sylius' no-reply@example.com default)"
 else
   y "  No custom sylius_mailer sender found - order confirmation mail will use Sylius' default sender"
 fi
 
-if [[ -f "templates/bundles/SyliusCoreBundle/Email/Blocks/OrderConfirmation/_content.html.twig" ]]; then
+if [[ -f "$SYLIUS_DIR/templates/bundles/SyliusCoreBundle/Email/Blocks/OrderConfirmation/_content.html.twig" ]]; then
   g "  Order confirmation mail template override present (dead order-view link removed)"
 else
-  r "  Missing templates/bundles/SyliusCoreBundle/Email/Blocks/OrderConfirmation/_content.html.twig"
+  r "  Missing $SYLIUS_DIR/templates/bundles/SyliusCoreBundle/Email/Blocks/OrderConfirmation/_content.html.twig"
   FAILED=1
 fi
 
@@ -368,8 +452,10 @@ for var in ADYEN_ENVIRONMENT ADYEN_MERCHANT_ACCOUNT ADYEN_API_KEY ADYEN_CLIENT_K
     || { r "  $var missing from .env.docker.example"; FAILED=1; }
 done
 g "  All 5 Adyen environment variables present in .env.docker.example"
+}
 
 # ---------------------------------------------------------------------------
+section_13() {
 b "13. Template overrides still match their Sylius original (see FIXES.md No. 36)"
 # ---------------------------------------------------------------------------
 # Our bundle-template overrides (No. 33, No. 34) only take effect while
@@ -380,27 +466,43 @@ b "13. Template overrides still match their Sylius original (see FIXES.md No. 36
 # seen once in this project with EnableFlushStamp, No. 19-22). This is a
 # warning, not a hard failure: a missing original doesn't necessarily
 # mean our override broke, only that it's worth checking by hand.
-ORIG_THANK_YOU="vendor/sylius/sylius/src/Sylius/Bundle/ShopBundle/templates/order/thank_you.html.twig"
-if [[ -f "$ORIG_THANK_YOU" ]]; then
+# Without vendor/ there is nothing to compare against. Saying "a Sylius
+# update may have moved it" in that case points at the wrong cause.
+if [[ ! -d "$SYLIUS_DIR/vendor/sylius/sylius" ]]; then
+  y "  $SYLIUS_DIR/vendor/sylius/sylius does not exist - run make deps"
+  y "  (skipping the comparison against Sylius' originals)"
+  SKIP_ORIGINALS=1
+else
+  SKIP_ORIGINALS=0
+fi
+
+ORIG_THANK_YOU="$SYLIUS_DIR/vendor/sylius/sylius/src/Sylius/Bundle/ShopBundle/templates/order/thank_you.html.twig"
+if [[ $SKIP_ORIGINALS -eq 1 ]]; then
+  :
+elif [[ -f "$ORIG_THANK_YOU" ]]; then
   g "  Sylius' original thank_you.html.twig still present - our override should still apply"
 else
   y "  $ORIG_THANK_YOU not found at its expected path."
   y "  A Sylius update may have moved it - our override in"
-  y "  templates/bundles/SyliusShopBundle/order/thank_you.html.twig"
+  y "  $SYLIUS_DIR/templates/bundles/SyliusShopBundle/order/thank_you.html.twig"
   y "  may no longer take effect. Worth checking by hand (see FIXES.md No. 33)."
 fi
 
-ORIG_ORDER_CONF="vendor/sylius/sylius/src/Sylius/Bundle/CoreBundle/Resources/views/Email/Blocks/OrderConfirmation/_content.html.twig"
-if [[ -f "$ORIG_ORDER_CONF" ]]; then
+ORIG_ORDER_CONF="$SYLIUS_DIR/vendor/sylius/sylius/src/Sylius/Bundle/CoreBundle/Resources/views/Email/Blocks/OrderConfirmation/_content.html.twig"
+if [[ $SKIP_ORIGINALS -eq 1 ]]; then
+  :
+elif [[ -f "$ORIG_ORDER_CONF" ]]; then
   g "  Sylius' original order-confirmation _content.html.twig still present - our override should still apply"
 else
   y "  $ORIG_ORDER_CONF not found at its expected path."
   y "  A Sylius update may have moved it - our override in"
-  y "  templates/bundles/SyliusCoreBundle/Email/Blocks/OrderConfirmation/_content.html.twig"
+  y "  $SYLIUS_DIR/templates/bundles/SyliusCoreBundle/Email/Blocks/OrderConfirmation/_content.html.twig"
   y "  may no longer take effect, and the dead order-view link could be back (see FIXES.md No. 34)."
 fi
+}
 
 # ---------------------------------------------------------------------------
+section_14() {
 b "14. Cross-references between our own files (see FIXES.md No. 43)"
 # ---------------------------------------------------------------------------
 # Generic, not hard-coded to today's filenames - each check re-derives
@@ -466,8 +568,10 @@ if [[ -d "sulu-overlay/src/Controller" ]] && [[ -d "sulu-overlay/templates" ]]; 
   rm -f /tmp/verify_routes_defined.txt
 fi
 [[ $ROUTE_CHECK_FAILED -eq 1 ]] && FAILED=1
+}
 
 # ---------------------------------------------------------------------------
+section_15() {
 b "15. Sulu content locale consistency (see FIXES.md No. 44)"
 # ---------------------------------------------------------------------------
 # The webspace defines which content localizations exist; the seed
@@ -519,8 +623,10 @@ if [[ -f "$WEBSPACE_FILE" ]] && [[ -f "$SEED_FILE" ]]; then
 else
   y "  Webspace or seed command not found - skipped"
 fi
+}
 
 # ---------------------------------------------------------------------------
+section_16() {
 b "16. Sylius bundle overrides sit in the Sylius app, not the Sulu overlay (see FIXES.md No. 45)"
 # ---------------------------------------------------------------------------
 # Symfony resolves templates/bundles/<Bundle>/... relative to the app
@@ -534,7 +640,7 @@ if [[ -d "sulu-overlay/templates/bundles" ]]; then
   STRAY=$(find sulu-overlay/templates/bundles -type f -name "*.twig" 2>/dev/null)
   if [[ -n "$STRAY" ]]; then
     r "  Sylius bundle override(s) found under sulu-overlay/ - they will be copied"
-    r "  into the Sulu app and silently never used. Move these to templates/bundles/:"
+    r "  into the Sulu app and silently never used. Move these to sylius-overlay/templates/bundles/:"
     while IFS= read -r f; do
       [[ -n "$f" ]] && r "    $f"
     done <<< "$STRAY"
@@ -543,17 +649,33 @@ if [[ -d "sulu-overlay/templates/bundles" ]]; then
     g "  No stray Sylius overrides under sulu-overlay/templates/bundles"
   fi
 else
-  g "  No sulu-overlay/templates/bundles directory (correct - Sylius overrides belong in templates/bundles)"
+  g "  No sulu-overlay/templates/bundles directory (correct - Sylius overrides belong in sylius-overlay)"
 fi
 
-if [[ -d "templates/bundles" ]]; then
-  COUNT=$(find templates/bundles -type f -name "*.twig" 2>/dev/null | wc -l | tr -d ' ')
-  g "  $COUNT Sylius bundle override(s) in templates/bundles (the Sylius app reads these)"
+# The overlay is the source of truth; the app folder only holds the copy.
+# Both are checked, because an override that exists in the overlay but not
+# in the app means the copy step did not run.
+if [[ -d "sylius-overlay/templates/bundles" ]]; then
+  OVERRIDE_COUNT=0
+  MISSING_OVERRIDE=0
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    OVERRIDE_COUNT=$((OVERRIDE_COUNT + 1))
+    rel="${f#sylius-overlay/}"
+    if [[ ! -f "$SYLIUS_DIR/$rel" ]]; then
+      r "  $f has not arrived in $SYLIUS_DIR/$rel - run make sylius-theme"
+      MISSING_OVERRIDE=1
+    fi
+  done < <(find sylius-overlay/templates/bundles -type f -name "*.twig" 2>/dev/null)
+  [[ $MISSING_OVERRIDE -eq 1 ]] && FAILED=1
+  g "  $OVERRIDE_COUNT Sylius bundle override(s) in sylius-overlay/templates/bundles"
 else
-  y "  No templates/bundles directory - this project expects two Sylius overrides there (No. 33, No. 34)"
+  y "  No sylius-overlay/templates/bundles - this project expects two Sylius overrides there (No. 33, No. 34)"
 fi
+}
 
 # ---------------------------------------------------------------------------
+section_17() {
 b "17. Database version consistency (see FIXES.md No. 51)"
 # ---------------------------------------------------------------------------
 # The MySQL version lives in three places that must agree: the image tag
@@ -571,43 +693,51 @@ DB_CHECK_FAILED=0
 SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
 MINOR_RE='^[0-9]+\.[0-9]+'
 
-# --- a) image tag of the database service ----------------------------------
-DB_IMAGES=$(grep -E '^[[:space:]]+image:[[:space:]]*mysql:' docker-compose.yaml 2>/dev/null | sed -E 's/.*mysql:[[:space:]]*//; s/[[:space:]]*$//')
-DB_IMAGE_COUNT=$(printf '%s' "$DB_IMAGES" | grep -c . | tr -d ' ')
+# --- a) the derived MySQL version ------------------------------------------
+# Since v38 the version is not written in docker-compose.yaml any more; it
+# is derived into versions.env (make versions) and read from there.
+DB_IMAGE=$(sed -n 's/^MYSQL_IMAGE=//p' versions.env 2>/dev/null | head -1)
+DB_SERVER=$(sed -n 's/^MYSQL_SERVER_VERSION=//p' versions.env 2>/dev/null | head -1)
 DB_MINOR=""
-if [[ "$DB_IMAGE_COUNT" != "1" ]]; then
-  r "  Expected exactly one mysql image in docker-compose.yaml, found $DB_IMAGE_COUNT"
+if [[ -z "$DB_IMAGE" || -z "$DB_SERVER" ]]; then
+  r "  MYSQL_IMAGE or MYSQL_SERVER_VERSION missing from versions.env - run make versions"
   DB_CHECK_FAILED=1
-elif [[ "$DB_IMAGES" =~ $MINOR_RE ]]; then
-  DB_MINOR="${BASH_REMATCH[0]}"
-  g "  database image: mysql:$DB_IMAGES (major.minor $DB_MINOR)"
 else
-  r "  database image tag \"mysql:$DB_IMAGES\" has no major.minor version - pin at least x.y"
-  DB_CHECK_FAILED=1
+  DB_TAG="${DB_IMAGE##*:}"
+  if [[ "$DB_TAG" =~ $MINOR_RE ]]; then
+    DB_MINOR="${BASH_REMATCH[0]}"
+    g "  versions.env: $DB_IMAGE (major.minor $DB_MINOR)"
+  else
+    r "  image tag \"$DB_IMAGE\" has no major.minor version - pin at least x.y"
+    DB_CHECK_FAILED=1
+  fi
+  if ! [[ "$DB_SERVER" =~ $SEMVER_RE ]]; then
+    r "  MYSQL_SERVER_VERSION=$DB_SERVER is not in x.y.z form (deprecated by Doctrine DBAL, see No. 51)"
+    DB_CHECK_FAILED=1
+  elif [[ -n "$DB_MINOR" ]] && [[ "$DB_SERVER" != "$DB_MINOR".* ]]; then
+    r "  MYSQL_SERVER_VERSION=$DB_SERVER does not match $DB_IMAGE"
+    DB_CHECK_FAILED=1
+  else
+    g "  versions.env: serverVersion=$DB_SERVER"
+  fi
 fi
 
-# --- b) host and serverVersion in every DATABASE_URL -----------------------
+# --- b) both DATABASE_URLs use that value, and the right host --------------
 URL_COUNT=0
 while IFS= read -r line; do
   [[ -z "$line" ]] && continue
   URL_COUNT=$((URL_COUNT + 1))
   host=$(printf '%s' "$line" | sed -E 's#.*@([^:/]+)[:/].*#\1#')
-  sv=$(printf '%s' "$line" | grep -oE 'serverVersion=[^&[:space:]]*' | sed 's/serverVersion=//')
   if [[ "$host" != "database" ]]; then
     r "  DATABASE_URL points to host \"$host\" instead of \"database\""
     DB_CHECK_FAILED=1
   fi
-  if [[ -z "$sv" ]]; then
-    r "  DATABASE_URL without serverVersion - Doctrine would have to guess the platform"
-    DB_CHECK_FAILED=1
-  elif ! [[ "$sv" =~ $SEMVER_RE ]]; then
-    r "  serverVersion=$sv is not in x.y.z form (deprecated by Doctrine DBAL, see No. 51)"
-    DB_CHECK_FAILED=1
-  elif [[ -n "$DB_MINOR" ]] && [[ "$sv" != "$DB_MINOR".* ]]; then
-    r "  serverVersion=$sv does not match the image mysql:$DB_IMAGES"
-    DB_CHECK_FAILED=1
+  if printf '%s' "$line" | grep -q 'serverVersion=${MYSQL_SERVER_VERSION'; then
+    g "  DATABASE_URL -> host $host, serverVersion from versions.env"
   else
-    g "  DATABASE_URL -> host $host, serverVersion=$sv"
+    r "  DATABASE_URL does not take serverVersion from \${MYSQL_SERVER_VERSION} -"
+    r "  a hard-coded value here drifts away from versions.env unnoticed"
+    DB_CHECK_FAILED=1
   fi
 done < <(grep -E '^[[:space:]]+DATABASE_URL:' docker-compose.yaml 2>/dev/null)
 if [[ $URL_COUNT -lt 2 ]]; then
@@ -631,13 +761,192 @@ DB_RUNNING=$($DC exec -T database mysqld --version 2>/dev/null | grep -oE 'Ver [
 if [[ -z "$DB_RUNNING" ]]; then
   y "  Running MySQL version could not be determined (is the database container up?) - skipped"
 elif [[ -n "$DB_MINOR" ]] && [[ "$DB_RUNNING" != "$DB_MINOR".* ]]; then
-  r "  Running server is MySQL $DB_RUNNING, but docker-compose.yaml asks for mysql:$DB_IMAGES"
+  r "  Running server is MySQL $DB_RUNNING, but versions.env asks for $DB_IMAGE"
   r "  (container from an old image? try: make docker-stop && make docker-start)"
   DB_CHECK_FAILED=1
 else
   g "  Running server: MySQL $DB_RUNNING"
 fi
 [[ $DB_CHECK_FAILED -eq 1 ]] && FAILED=1
+}
+
+# ---------------------------------------------------------------------------
+section_18() {
+b "18. Derived versions (kickstarter.yaml -> versions.env)"
+# ---------------------------------------------------------------------------
+# Everything about PHP, MySQL and Node is derived from the two constraints
+# in kickstarter.yaml (docs/decisions.md, ADR-11). Three ways that can go
+# wrong silently, so all three are checked: versions.env drifting away from
+# the manifest, the fallback defaults in docker-compose.yaml/Dockerfile
+# drifting away from versions.env, and .env.docker overriding a derived
+# value because it was copied over from an older version folder.
+VER_CHECK_FAILED=0
+DERIVED_KEYS="SYLIUS_VERSION SULU_VERSION FRANKENPHP_VERSION MYSQL_IMAGE MYSQL_SERVER_VERSION NODE_MAJOR"
+
+if [[ ! -f versions.env ]]; then
+  r "  versions.env is missing - run make versions"
+  VER_CHECK_FAILED=1
+else
+  for key in $DERIVED_KEYS; do
+    grep -q "^${key}=" versions.env \
+      || { r "  $key missing from versions.env - run make versions"; VER_CHECK_FAILED=1; }
+  done
+
+  # --- a) versions.env satisfies the manifest -------------------------------
+  for project in sylius sulu; do
+    constraint=$(sed -n "s/^${project}: *\"\([^\"]*\)\".*/\1/p" kickstarter.yaml | head -1)
+    upper=$(printf '%s' "$project" | tr '[:lower:]' '[:upper:]')
+    resolved=$(sed -n "s/^${upper}_VERSION=//p" versions.env | head -1)
+    if [[ -z "$constraint" || -z "$resolved" ]]; then
+      r "  cannot compare $project: constraint or resolved version missing"
+      VER_CHECK_FAILED=1
+      continue
+    fi
+    wanted="${constraint#\~}"
+    if [[ "${resolved%.*}" != "${wanted%.*}" ]]; then
+      r "  $project $resolved is outside $constraint (different minor series)"
+      VER_CHECK_FAILED=1
+    elif [[ "${resolved##*.}" -lt "${wanted##*.}" ]]; then
+      r "  $project $resolved is older than the $constraint minimum"
+      VER_CHECK_FAILED=1
+    else
+      g "  $project $constraint -> $resolved"
+    fi
+  done
+
+  # --- b) fallback defaults still match ------------------------------------
+  check_default() {
+    local file="$1" key="$2" expected="$3" found
+    found=$(grep -oE "\\$\{${key}:-[^}]*\}" "$file" 2>/dev/null | head -1 | sed -E "s/.*:-//; s/\}//")
+    if [[ -z "$found" ]]; then
+      found=$(grep -oE "^ARG ${key}=.*" "$file" 2>/dev/null | head -1 | sed -E "s/^ARG ${key}=//")
+    fi
+    if [[ -z "$found" ]]; then
+      y "  $key has no fallback default in $file - skipped"
+    elif [[ "$found" != "$expected" ]]; then
+      r "  $file falls back to $key=$found, versions.env says $expected"
+      VER_CHECK_FAILED=1
+    else
+      g "  $file fallback $key=$found matches versions.env"
+    fi
+  }
+  for key in FRANKENPHP_VERSION NODE_MAJOR MYSQL_IMAGE MYSQL_SERVER_VERSION; do
+    check_default docker-compose.yaml "$key" "$(sed -n "s/^${key}=//p" versions.env | head -1)"
+  done
+  check_default docker/php/Dockerfile FRANKENPHP_VERSION "$(sed -n 's/^FRANKENPHP_VERSION=//p' versions.env | head -1)"
+  check_default docker/php/Dockerfile NODE_MAJOR "$(sed -n 's/^NODE_MAJOR=//p' versions.env | head -1)"
+
+  # --- c) .env.docker must not override a derived value ---------------------
+  if [[ -f .env.docker ]]; then
+    for key in $DERIVED_KEYS; do
+      grep -qE "^${key}=" .env.docker \
+        && { r "  .env.docker sets $key - that overrides versions.env, remove the line"; VER_CHECK_FAILED=1; }
+    done
+    g "  .env.docker checked for version overrides"
+  fi
+
+  # --- d) the reviewed lock really holds that Sylius version ---------------
+  LOCK="sylius-overlay/composer.lock"
+  if [[ -f "$LOCK" ]]; then
+    LOCKED=$(grep -A2 '"name": "sylius/sylius"' "$LOCK" | sed -n 's/.*"version": "v\{0,1\}\([0-9][^"]*\)".*/\1/p' | head -1)
+    WANT=$(sed -n 's/^SYLIUS_VERSION=//p' versions.env | head -1)
+    if [[ -z "$LOCKED" ]]; then
+      y "  could not read sylius/sylius from $LOCK - skipped"
+    elif [[ "$LOCKED" != "$WANT" ]]; then
+      r "  $LOCK holds sylius/sylius $LOCKED, versions.env says $WANT"
+      r "  (after a version change: make deps && make verify && make freeze-locks)"
+      VER_CHECK_FAILED=1
+    else
+      g "  $LOCK holds sylius/sylius $LOCKED"
+    fi
+  else
+    y "  $LOCK not present yet - make freeze-locks writes it"
+  fi
+fi
+[[ $VER_CHECK_FAILED -eq 1 ]] && FAILED=1
+}
+
+# ---------------------------------------------------------------------------
+section_19() {
+b "19. Structure: kickstarter in the root, applications in their folders"
+# ---------------------------------------------------------------------------
+# Up to v37 Sylius lived in the repository root, which is what made the
+# stash-and-restore dance in install-apps.sh necessary. If application
+# files reappear up here, that mixing is back - and it is hard to spot,
+# because everything keeps working until the next Sylius update.
+STRUCT_CHECK_FAILED=0
+for leftover in composer.json composer.lock src templates public var/cache vendor bin/console; do
+  if [[ -e "$leftover" ]]; then
+    r "  $leftover is back in the repository root - application code belongs in $SYLIUS_DIR/"
+    STRUCT_CHECK_FAILED=1
+  fi
+done
+[[ $STRUCT_CHECK_FAILED -eq 0 ]] && g "  No application files in the repository root"
+
+# Every overlay file has to exist in its application. var/ is skipped: it
+# is a named volume inside the container, so the host copy is invisible
+# there by design (install-apps.sh seeds it through a container).
+for pair in "sylius-overlay:$SYLIUS_DIR" "sulu-overlay:$SULU_DIR"; do
+  overlay="${pair%%:*}"
+  app="${pair##*:}"
+  [[ -d "$overlay" ]] || { r "  $overlay/ is missing - package incomplete"; STRUCT_CHECK_FAILED=1; FAILED=1; continue; }
+  if [[ ! -d "$app" ]]; then
+    y "  $app/ does not exist yet - run make install-apps"
+    continue
+  fi
+  MISSING=0
+  TOTAL=0
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    rel="${f#"$overlay"/}"
+    [[ "$rel" == var/* ]] && continue
+    TOTAL=$((TOTAL + 1))
+    [[ -f "$app/$rel" ]] || { r "  $f has not arrived in $app/$rel"; MISSING=1; }
+  done < <(find "$overlay" -type f 2>/dev/null)
+  if [[ $MISSING -eq 1 ]]; then
+    r "  run: make ${app}-theme"
+    STRUCT_CHECK_FAILED=1
+  else
+    g "  all $TOTAL files from $overlay/ are present in $app/"
+  fi
+done
+[[ $STRUCT_CHECK_FAILED -eq 1 ]] && FAILED=1
+}
+
+# ---------------------------------------------------------------------------
+#  Dispatcher
+#
+#  Without arguments every section runs, as before. With arguments only
+#  those run - "verify.sh 18 19" while working on one of them, instead of
+#  sitting through all nineteen.
+# ---------------------------------------------------------------------------
+ALL_SECTIONS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19"
+
+# Sections that talk to a running container, and sections that read files
+# inside the two applications. Both are pointless before the install ran.
+NEEDS_CONTAINER=" 1 2 3 4 7 "
+NEEDS_APPS=" 5 6 8 11 12 13 16 "
+
+section_0
+
+SECTIONS="$ALL_SECTIONS"
+[[ $# -gt 0 ]] && SECTIONS="$*"
+
+for n in $SECTIONS; do
+  if ! declare -F "section_$n" >/dev/null 2>&1; then
+    r "No section $n - available: 0 $ALL_SECTIONS"
+    exit 2
+  fi
+  if [[ $CONTAINERS_UP -eq 0 ]] && [[ "$NEEDS_CONTAINER" == *" $n "* ]]; then
+    y "== $n. skipped - needs running containers =="
+    continue
+  fi
+  if [[ $APPS_PRESENT -eq 0 ]] && [[ "$NEEDS_APPS" == *" $n "* ]]; then
+    y "== $n. skipped - needs ./$SYLIUS_DIR and ./$SULU_DIR =="
+    continue
+  fi
+  "section_$n"
+done
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -647,6 +956,6 @@ if [[ $FAILED -eq 0 ]]; then
 else
   r "=== There are findings. Please review them above. ==="
   y "Emergency exit: disable products and start without them:"
-  y "  mv config/packages/dach_products.yaml{,.disabled} && make cache-clear && make fixtures"
+  y "  make products-off && make fixtures"
   exit 1
 fi

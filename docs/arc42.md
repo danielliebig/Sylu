@@ -16,9 +16,10 @@ Zielgruppe: erfahrene Entwickler, die das Gerüst übernehmen und pflegen.
 | Wartbarkeit | kein Vendor-Eingriff, Overlay-Prinzip |
 
 ## 2 Randbedingungen
-- Getestete Versionen (v37): Sulu 3.0.9, Sylius 2.2.9, Symfony 7.4.18,
-  PHP 8.5.10, MySQL 8.4.11, Node.js 24.21.0 — Sylius über `composer.lock`
-  fest, Sulu beim Setup innerhalb `~3.0.9` aufgelöst; Auswahl nach ADR-11
+- Getestete Versionen (v38): Sulu 3.0.9, Sylius 2.2.9, Symfony 7.4.18,
+  PHP 8.5.10, MySQL 8.4.11, Node.js 24.21.0 — beide Apps über den
+  `composer.lock` im jeweiligen Overlay festgelegt; PHP, MySQL und
+  Node.js abgeleitet aus `kickstarter.yaml` nach ADR-11 und ADR-12
 - Multi-Arch (Apple Silicon und x86_64), kein hartkodiertes Platform-Flag
 - Sulu 3 statt 2.6 (ProxyManager-Endlosschleife mit Symfony 7.4)
 - FrankenPHP ohne Worker-Mode
@@ -47,19 +48,27 @@ Sulu; Shop-Betreiber verwaltet Produkte und Bestellungen in Sylius.
 
 ### Verzeichnisse
 ```
-/                       Sylius-App (Projekt-Root)
-├── config/packages/    dach_demo.yaml, dach_products.yaml,
-│                       sylius_shipping_payment.yaml
-├── src/Fixture/        RockbandProductsFixture
-├── src/Command/        CreateTestOrdersCommand
-├── templates/bundles/  Sylius-Bundle-Template-Overrides
+/                       Kickstarter (kein Anwendungscode)
+├── kickstarter.yaml    Versionen von Sylius und Sulu (Absicht)
+├── versions.env        PHP, MySQL, Node (abgeleitet, `make versions`)
+├── sylius-overlay/     wird per `make sylius-theme` nach ./sylius kopiert
+│   ├── composer.json, composer.lock   geprüfter Abhängigkeitsstand
+│   ├── config/packages/  dach_demo.yaml, dach_products.yaml,
+│   │                     sylius_shipping_payment.yaml
+│   ├── src/Fixture/      RockbandProductsFixture
+│   ├── src/Command/      CreateTestOrdersCommand
+│   ├── templates/bundles/ Sylius-Bundle-Template-Overrides
+│   └── var/demo-images/  eigene Produktfotos (optional)
 ├── sulu-overlay/       wird per `make sulu-theme` nach ./sulu kopiert
+│   ├── composer.json, composer.lock   geprüfter Abhängigkeitsstand
 │   ├── config/         webspaces/website.xml, templates/pages/
 │   ├── src/            Controller, Services, Twig-Extension, Command
 │   ├── templates/      Storefront-Templates
 │   ├── tests/          Unit-, Integration-, Smoke-Tests
 │   └── public/css/
-├── docker/             Caddyfile, install-apps.sh, verify.sh
+├── docker/             Caddyfile, install-apps.sh, resolve-versions.sh,
+│                       verify.sh
+├── sylius/             generierte Sylius-App (nicht im Paket)
 └── sulu/               generierte Sulu-App (nicht im Paket)
 ```
 
@@ -149,7 +158,7 @@ API-Werte werden einmal zentral verengt, statt an jeder Lesestelle
 gecastet.
 
 ### Prüfung vor Installation
-`make verify` mit 17 Abschnitten, inklusive Querverweis-Prüfungen
+`make verify` mit 20 Abschnitten (0 bis 19, einzeln aufrufbar), inklusive Querverweis-Prüfungen
 zwischen Dateien (Template-Verweise, Route-Namen, Override-Ablageort)
 und der Konsistenz von Datenbank-Image und `serverVersion`.
 

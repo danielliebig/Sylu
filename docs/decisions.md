@@ -97,6 +97,13 @@ es bleibt unverändert, weil es aus dem Sylius-Skeleton stammt
 weiter. Wer die Läufe stoppen will, ohne das Repo zu ändern, deaktiviert
 GitHub Actions in den Repository-Einstellungen.
 
+**Nachtrag (v38):** Mit der neuen Struktur liegt das geerbte `.github/`
+im generierten `sylius/` und damit außerhalb des Repos. Es gibt also
+keine CI-Konfiguration mehr, auch keine unpassende — Dependabot
+(`directory: "/"`) und die Sylius-Workflows sind damit weg. Wer eine
+Pipeline aufsetzt, beginnt bei null, was der Absicht dieser Entscheidung
+entspricht.
+
 ## ADR-11 Versionsregel für PHP, Datenbank und Node.js
 **Status:** umgesetzt (v37)
 **Entscheidung:** Maßgeblich ist die Upstream-CI, also die öffentliche
@@ -114,8 +121,51 @@ bleiben zusätzlich Pflicht, ersetzen die Upstream-Absicherung aber nicht.
 **Konsequenzen:** MariaDB wurde verworfen. Neuere Versionen (PHP 8.6,
 MySQL 9.7) kommen erst, wenn beide Projekte sie in ihrer CI testen.
 Sulu ist auf `~3.0.9` begrenzt, damit kein ungetestetes 3.1 einzieht.
-`make setup` installiert weiterhin den geprüften Lock-Stand;
-Patch-Updates beim Projektstart sollen als eigener Schritt folgen
-(geplant für v38). Der MySQL Community Server steht unter GPLv2 — für
+`make setup` installiert weiterhin den geprüften Lock-Stand. Seit v38
+werden die drei Versionen nicht mehr von Hand gepflegt, sondern von
+`docker/scripts/resolve-versions.sh` aus der Upstream-CI abgeleitet
+(ADR-12). Die Quellen dafür: Sylius `.github/workflows/matrix.json`,
+wobei `minimal` und `full` beide zählen — PHP 8.5 mit MySQL steht nur in
+`minimal`; Sulu `.github/workflows/test-application.yaml` samt
+`tests/docker/docker-compose.mysql-*.yml`, weil der Matrixname
+(`mysql-80`) nicht die Version ist. Node.js lässt sich bei Sylius nicht
+ableiten (`engines.node: >=20`, nach oben offen), die Zahl kommt also
+allein aus Sulus Matrix. Der MySQL Community Server steht unter GPLv2 — für
 gehostete Shops unkritisch; wird MySQL in ausgelieferte Software
 eingebettet oder mitgebündelt, ist das juristisch zu prüfen.
+
+## ADR-12 Kickstarter im Root, Anwendungen in eigenen Ordnern
+**Status:** umgesetzt (v38)
+**Entscheidung:** Der Repository-Root ist der Kickstarter und enthält
+keinen Anwendungscode. Sylius und Sulu werden beim Setup in `./sylius`
+und `./sulu` erzeugt, beide Ordner sind ignoriert. Was uns gehört, liegt
+in `sylius-overlay/` und `sulu-overlay/`, jeweils samt `composer.json`
+und `composer.lock`. Die Versionsabsicht steht in `kickstarter.yaml`,
+zwei Composer-Constraints; PHP, MySQL und Node.js werden daraus in
+`versions.env` abgeleitet (`make versions`).
+**Begründung:** Bis v37 lag Sylius im Root, vermischt mit den eigenen
+Dateien: 213 von 269 eingecheckten Dateien stammten aus dem
+Sylius-Skeleton. Der Installer musste unsere Dateien deshalb vor dem
+`create-project` sichern und danach zurückspielen, eigene Konfigurationen
+brauchten abweichende Namen, und ein Update des Skeletons wäre nicht von
+eigenen Änderungen zu trennen gewesen. Mit getrennten Ordnern kollidiert
+nichts, und das Overlay wird einfach darüber kopiert.
+**Verworfene Alternativen:**
+- *Nur räumlich trennen*, also die eingecheckte Sylius-App nach `./sylius`
+  verschieben. Hätte die Asymmetrie zur generierten Sulu-Seite behalten
+  und die Skeleton-Dateien weiter im Repo geführt.
+- *Root-`composer.json` als Manifest.* Composer versteht eine
+  `composer.json` als etwas Installierbares: ein `composer install` im
+  Root hätte Sylius und Sulu in einen gemeinsamen `vendor/` auflösen
+  wollen, obwohl die Seiten heute auf verschiedenen DBAL-Majors liegen
+  (Sylius 3.10, Sulu 4). Daher eine eigene Datei mit eigenem Namen, die
+  niemand versehentlich installiert.
+**Konsequenzen:** Eingecheckt sind rund 60 statt 269 Dateien. Das geerbte
+`.github/` liegt jetzt im generierten `sylius/` und ist damit außerhalb
+des Repos — es gibt also keine CI-Konfiguration mehr, was zu ADR-10 passt
+und dort als Nachtrag festgehalten ist. Die Skeleton-Constraint
+wird aus dem Manifest auf die Minor-Serie reduziert (`~2.2.9` → `^2.2`),
+weil `sylius/sylius-standard` unabhängig vom Framework versioniert ist und
+bei 2.2.4 endet. Neue Host-Abhängigkeit: `python3` für die Ableitung.
+`verify.sh` prüft die Struktur in Abschnitt 19 und die abgeleiteten
+Versionen in Abschnitt 18.

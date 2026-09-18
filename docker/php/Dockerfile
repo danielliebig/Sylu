@@ -48,10 +48,13 @@ RUN install-php-extensions \
 # --- Composer ----------------------------------------------------------------
 COPY --from=composer/composer:2-bin /composer /usr/bin/composer
 
-# --- Node.js 24 + Yarn (Sylius assets) ---------------------------------------
-# 24 is the highest Node version both Sylius and Sulu test in their
-# upstream CI (version rule: docs/decisions.md, ADR-11).
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+# --- Node.js + Yarn (Sylius assets) ------------------------------------------
+# The version is derived, not chosen here: it is the highest Node version
+# Sulu tests in its CI, capped by Sylius' engines.node range (version rule:
+# docs/decisions.md, ADR-11). Passed in from versions.env via
+# docker-compose.yaml; the default only keeps a bare "docker build" working.
+ARG NODE_MAJOR=24
+RUN curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g yarn@1.22.22 \
     && npm cache clean --force \

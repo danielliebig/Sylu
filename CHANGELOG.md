@@ -10,6 +10,44 @@ adapted for an internal kickstarter project rather than a public
 library, so there's no strict Added/Changed/Fixed split where it
 wouldn't add value.
 
+## [v38]
+
+- Changed: **the kickstarter moved out of the Sylius application.** The
+  repository root now holds no application code; Sylius and Sulu are
+  generated into `./sylius` and `./sulu` from `sylius-overlay/` and
+  `sulu-overlay/`, both folders ignored (docs/decisions.md, ADR-12).
+  Checked in: ~60 files instead of 269, of which 213 used to come from
+  the Sylius skeleton
+- Added: `kickstarter.yaml` — two Composer constraints, the only versions
+  chosen by hand. `make versions` derives PHP, MySQL and Node.js from the
+  upstream CI of both projects into `versions.env`. Reproduces the v37
+  choice (PHP 8.5, MySQL 8.4, Node 24) without any of those numbers being
+  written in the script
+- Added: `make freeze-locks` writes both applications' reviewed
+  `composer.json` + `composer.lock` back into the overlays; the Sulu side
+  now has a checked-in lock too, closing the drift noted in the backlog
+- Removed: the snapshot/restore mechanism in `install-apps.sh` and the
+  moving-aside of Sylius' own `compose.yml`. With separate folders
+  nothing collides any more
+- Fixed: own product photos never reached the container — a named volume
+  on `/app/var` hid the bind mount underneath (FIXES.md No. 52)
+- Fixed: the guest-checkout patch had been a no-op since version 1;
+  Sylius 2.2 has no `/checkout` entry in `security.yaml` at all
+  (FIXES.md No. 53)
+- Added: `verify.sh` section 0 checks prerequisites (Docker reachable,
+  application folders present, containers running) and skips what cannot
+  be checked with one line, instead of producing 19 sections of false
+  findings. Sections are individually callable:
+  `make verify SECTIONS="18 19"`
+- Added: `verify.sh` section 18 (derived versions: manifest vs
+  `versions.env` vs the fallback defaults in Compose/Dockerfile vs
+  `.env.docker`) and section 19 (structure: no application files in the
+  root, every overlay file present in its application)
+- Changed: two misleading verify messages now distinguish "file missing"
+  from "file present but wrong" (section 8) and report a missing
+  `vendor/` as such instead of suspecting a moved Sylius template
+  (section 13)
+
 ## [v37]
 
 - Decided: a fixed version rule (docs/decisions.md, ADR-11). The upstream

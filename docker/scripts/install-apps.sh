@@ -1,220 +1,204 @@
 #!/usr/bin/env bash
 # ===========================================================================
-#  First install: sets up Sylius (root) and Sulu (./sulu).
+#  First install: generates ./sylius and ./sulu from the two overlays.
 #
-#  VERSION CHOICE - WHY SULU 3.0:
-#  Sulu 2.6 internally requires "symfony/proxy-manager-bridge ^5.4 || ^6.0" -
-#  a bridge deprecated since Symfony 5.4 that only exists up to Symfony 6.4.
-#  The rest of Sulu's own composer.json allows Symfony up to ^7.0, so
-#  Composer pulls most of the app to 7.4 and pins only the bridge to 6.4 -
-#  two Symfony generations in the same install. Result: the generated
-#  container code for "sulu_core.proxy_manager.configuration" gets a
-#  self-referencing fallback getter and runs into an infinite recursion
-#  that fills up memory, no matter how high memory_limit is set.
-#  Sulu 3.0 removed ProxyManager entirely (native Symfony lazy loading) and
-#  is officially supported on Symfony 6.4-7.4 - exactly the version the
-#  Sylius side here also uses. Hence 3.0, not 2.6.
+#  STRUCTURE
+#  The repository root is the kickstarter and holds no application code.
+#  Each application is created from its upstream skeleton and then receives
+#  everything we own from <name>-overlay/, including composer.json and
+#  composer.lock. So the installed dependency set is the reviewed one, not
+#  whatever Composer resolves today (version rule: docs/decisions.md,
+#  ADR-11).
 #
-#  Since v37 the default is ~3.0.9 instead of ^3.0: it still picks up
-#  every 3.0.x patch at install time, but no untested 3.1 (version rule:
-#  docs/decisions.md, ADR-11).
+#  WHY THIS REPLACED THE OLD STASH MECHANISM
+#  Up to v37 Sylius lived in the project root, so its installer overwrote
+#  our files and they had to be snapshotted and restored around it. With
+#  separate folders nothing collides, and the overlay is simply copied on
+#  top afterwards.
 #
-#  OVERLAY INSTEAD OF NO-CLOBBER:
-#  "cp -rn" protected our own files, but silently swallowed Sylius'
-#  originals of the same name (config/packages/_sylius.yaml). Now: stash
-#  our files -> install Sylius/Sulu COMPLETELY -> restore our files.
+#  OVERLAY VS PATCH
+#  Files we own are in the overlay and are copied verbatim. Two files
+#  belong to the skeleton and are only PATCHED, so that upstream changes in
+#  them are not frozen by us: config/packages/security.yaml (guest
+#  checkout) and config/parameters.yaml (default locale). Both patches
+#  abort if neither the expected pattern nor the desired result is found -
+#  a silently skipped patch is how the locale bug in FIXES.md No. 14 came
+#  back twice.
+#
+#  SKELETON VERSIONS
+#  The skeleton repositories are versioned independently of the frameworks
+#  they install: sylius/sylius-standard stops at 2.2.4 while sylius/sylius
+#  is at 2.2.9. The manifest constraint is therefore reduced to its minor
+#  series (~2.2.9 -> ^2.2) for the skeleton. What actually decides the
+#  framework version is the overlay's composer.lock; make verify checks it
+#  against the manifest.
 #
 #  This script is idempotent - running it more than once is harmless.
 # ===========================================================================
 set -uo pipefail
 
-DC="docker compose -f docker-compose.yaml --env-file .env.docker"
-SYLIUS_VERSION="${SYLIUS_VERSION:-^2.2}"
-SULU_VERSION="${SULU_VERSION:-~3.0.9}"
-STASH=".kickstarter-overlay"
+DC="docker compose -f docker-compose.yaml --env-file versions.env --env-file .env.docker"
+MANIFEST="kickstarter.yaml"
 
 g() { printf "\033[0;32m%s\033[0m\n" "$1"; }
 y() { printf "\033[0;33m%s\033[0m\n" "$1"; }
 r() { printf "\033[0;31m%s\033[0m\n" "$1"; }
 b() { printf "\n\033[0;34m>> %s\033[0m\n" "$1"; }
 
-# Automatically determines what's ours: everything already in the project
-# BEFORE the Sylius install runs. A hand-maintained list forgot the
-# Makefile and docker/ in version 2 - Sylius overwrote them.
-STASH_EXCLUDES="./.git ./vendor ./node_modules ./sulu ./var ./.kickstarter-overlay ./.sylius-original ./.env.docker"
+die() { r "   $1"; exit 1; }
 
 # ---------------------------------------------------------------------------
-b "0/6  Cleaning up compose file collisions"
+#  Manifest
 # ---------------------------------------------------------------------------
-# Sylius Standard ships its own compose.yml. Without -f, "docker compose"
-# gives it precedence over docker-compose.yaml.
-mkdir -p .sylius-original
-for f in compose.yml compose.yaml compose.override.yml compose.override.yaml; do
-  if [[ -f "$f" ]]; then
-    mv "$f" .sylius-original/
-    y "   $f -> .sylius-original/"
+manifest_constraint() {
+  local project="$1" value
+  value="$(sed -n "s/^${project}: *\"\([^\"]*\)\".*/\1/p" "$MANIFEST" | head -1)"
+  [[ -n "$value" ]] || die "$MANIFEST has no entry for $project"
+  printf '%s' "$value"
+}
+
+# "~2.2.9" or "2.2.9" -> "^2.2"
+skeleton_constraint() {
+  local value="$1" stripped
+  stripped="${value#\~}"
+  [[ "$stripped" =~ ^([0-9]+)\.([0-9]+)\. ]] \
+    || die "cannot read a minor series from constraint '$value'"
+  printf '^%s.%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
+
+SYLIUS_SKELETON="$(skeleton_constraint "$(manifest_constraint sylius)")"
+SULU_SKELETON="$(skeleton_constraint "$(manifest_constraint sulu)")"
+
+# ---------------------------------------------------------------------------
+#  Skeletons
+# ---------------------------------------------------------------------------
+# --no-install on purpose: the overlay's composer.lock arrives in step 3
+# and "make deps" installs from that. Installing twice would first resolve
+# a dependency set nobody reviewed.
+install_skeleton() {
+  local service="$1" dir="$2" package="$3" constraint="$4"
+
+  mkdir -p "$dir"
+  if [[ -f "$dir/composer.json" ]]; then
+    g "   already present - skipped"
+    return 0
   fi
-done
-g "   no collisions"
-
-# ---------------------------------------------------------------------------
-b "1/6  Stashing our own files"
-# ---------------------------------------------------------------------------
-if [[ -f composer.json ]] && grep -q "sylius/sylius" composer.json 2>/dev/null; then
-  g "   Sylius already installed - no snapshot needed"
-else
-  rm -rf "$STASH"
-  mkdir -p "$STASH"
-  EXCL=""
-  for e in $STASH_EXCLUDES; do EXCL="$EXCL -path $e -prune -o"; done
-  # shellcheck disable=SC2086
-  find . $EXCL -type f -print | while read -r f; do
-    mkdir -p "$STASH/$(dirname "$f")"
-    cp "$f" "$STASH/$f"
-  done
-  g "   $(find "$STASH" -type f | wc -l | tr -d ' ') files stashed (snapshot before Sylius)"
-fi
-
-# ---------------------------------------------------------------------------
-b "2/6  Sylius Standard into the project root"
-# ---------------------------------------------------------------------------
-if [[ -f composer.json ]] && grep -q "sylius/sylius" composer.json 2>/dev/null; then
-  g "   already present - skipped"
-else
-  $DC run --rm --no-deps -T sylius bash -c "
+  $DC run --rm --no-deps -T "$service" bash -c "
     set -e
-    rm -rf /tmp/sk
-    composer create-project sylius/sylius-standard:${SYLIUS_VERSION} /tmp/sk \
-      --no-interaction --no-scripts --prefer-dist
-    # -r without -n: Sylius wins on filename collisions. Our files come
-    # back in step 3.
-    cp -r /tmp/sk/. /app/
-    rm -rf /tmp/sk
-  " || { r "   Sylius install failed"; exit 1; }
-  g "   Sylius set up"
-fi
+    rm -rf /tmp/skeleton
+    composer create-project ${package}:${constraint} /tmp/skeleton \
+      --no-interaction --no-scripts --no-install --prefer-dist
+    cp -r /tmp/skeleton/. /app/
+    rm -rf /tmp/skeleton
+  " || die "$package install failed"
+  g "   $package $constraint set up in $dir"
+}
 
-# Move Sylius' own compose files aside again
-for f in compose.yml compose.yaml compose.override.yml compose.override.yaml; do
-  [[ -f "$f" ]] && mv "$f" .sylius-original/ && y "   $f -> .sylius-original/"
-done
+b "1/5  Sylius skeleton (${SYLIUS_SKELETON}) into ./sylius"
+install_skeleton sylius sylius sylius/sylius-standard "$SYLIUS_SKELETON"
+
+b "2/5  Sulu skeleton (${SULU_SKELETON}) into ./sulu"
+install_skeleton sulu sulu sulu/skeleton "$SULU_SKELETON"
 
 # ---------------------------------------------------------------------------
-b "3/6  Restoring our own files"
+b "3/5  Copying both overlays into the applications"
 # ---------------------------------------------------------------------------
-# IMPORTANT: config/packages/_sylius.yaml belongs to Sylius and must NOT be
-# restored - in case it ever ended up in the snapshot.
-rm -f "$STASH/config/packages/_sylius.yaml"
+copy_overlay() {
+  local overlay="$1" dir="$2"
+  [[ -d "$overlay" ]] || die "$overlay/ is missing - package incomplete"
+  cp -r "$overlay/." "$dir/"
+  g "   $(find "$overlay" -type f | wc -l | tr -d ' ') files from $overlay -> $dir"
+}
 
-if [[ -d "$STASH" ]]; then
-  COUNT=0
-  while IFS= read -r f; do
-    rel="${f#$STASH/}"
-    mkdir -p "$(dirname "$rel")"
-    cp "$f" "$rel"
-    COUNT=$((COUNT+1))
-  done < <(find "$STASH" -type f)
-  g "   $COUNT files restored"
-  chmod +x docker/scripts/*.sh 2>/dev/null || true
+copy_overlay sylius-overlay sylius
+copy_overlay sulu-overlay sulu
+
+# var/ is a named volume inside the container, which shadows the bind
+# mount: files copied on the host never show up under /app/var. The demo
+# photos therefore have to go in through a container of their own.
+if [[ -n "$(find sylius-overlay/var/demo-images -type f 2>/dev/null)" ]]; then
+  $DC run --rm --no-deps -T \
+    -v "$PWD/sylius-overlay/var/demo-images:/seed:ro" sylius bash -c "
+      set -e
+      mkdir -p /app/var/demo-images
+      cp -a /seed/. /app/var/demo-images/
+    " && g "   demo photos copied into the var volume" \
+      || y "   demo photos could not be copied - the fixture falls back to icons"
 else
-  y "   no snapshot found - skipped"
-fi
-
-# In case Sylius ships its own _sylius.yaml: confirm it's there
-if [[ -f config/packages/_sylius.yaml ]]; then
-  g "   config/packages/_sylius.yaml (Sylius original) present"
-else
-  r "   WARNING: config/packages/_sylius.yaml is missing - incomplete Sylius copy?"
-fi
-
-# --- Service definitions: no longer needed ----------------------------------
-# Fixture and command use #[Autowire] attributes. If a block still exists in
-# services.yaml from an older version, it needs to go - otherwise it
-# collides with the attributes.
-if grep -q "RockbandProductsFixture\|CreateTestOrdersCommand" config/services.yaml 2>/dev/null; then
-  cp config/services.yaml config/services.yaml.bak
-  python3 - <<'PY'
-import re
-p = "config/services.yaml"
-s = open(p).read()
-for cls, tag in [("App\\Fixture\\RockbandProductsFixture", "sylius_fixtures.fixture"),
-                 ("App\\Command\\CreateTestOrdersCommand", "console.command")]:
-    i = s.find("    " + cls + ":")
-    if i == -1:
-        continue
-    j = s.find("- { name: " + tag + " }", i)
-    if j == -1:
-        continue
-    j = s.find("\n", j) + 1
-    s = s[:i] + s[j:]
-open(p, "w").write(s)
-print("   old service definitions removed (backup: config/services.yaml.bak)")
-PY
-else
-  g "   no old service definitions in services.yaml"
+  g "   no demo photos supplied - the fixture uses icons"
 fi
 
 # ---------------------------------------------------------------------------
-b "4/6  Guest checkout in security.yaml"
+b "4/5  Patching two skeleton files"
 # ---------------------------------------------------------------------------
-SEC="config/packages/security.yaml"
-if [[ -f "$SEC" ]] && grep -q "shop_regex%/checkout" "$SEC" && grep "shop_regex%/checkout" "$SEC" | grep -q "ROLE_USER"; then
+# Guest checkout: if an access_control entry for /checkout exists and puts
+# it behind ROLE_USER, every anonymous cart lands on the login form.
+#
+# Sylius 2.2's skeleton ships NO such entry - checkout is public by
+# default, so there is nothing to patch and that is not a finding. Only an
+# entry with an unexpected role aborts: that is the case where the patch
+# would silently do nothing and guest checkout would break. make verify
+# section 5 reports the same three states.
+SEC="sylius/config/packages/security.yaml"
+[[ -f "$SEC" ]] || die "$SEC not found - incomplete Sylius skeleton?"
+CHECKOUT_LINE="$(grep "shop_regex%/checkout" "$SEC")"
+if [[ -z "$CHECKOUT_LINE" ]]; then
+  g "   no /checkout entry - checkout is public in this Sylius version"
+elif grep -q "ROLE_USER" <<< "$CHECKOUT_LINE"; then
   cp "$SEC" "$SEC.bak"
   sed -i.tmp 's|\(shop_regex%/checkout".*role:\) ROLE_USER|\1 PUBLIC_ACCESS|' "$SEC"
   rm -f "$SEC.tmp"
   g "   /checkout set to PUBLIC_ACCESS (backup: $SEC.bak)"
+elif grep -q "PUBLIC_ACCESS" <<< "$CHECKOUT_LINE"; then
+  g "   /checkout already PUBLIC_ACCESS"
 else
-  g "   guest checkout OK or entry not present"
+  die "/checkout entry in $SEC has an unexpected role: $CHECKOUT_LINE"
 fi
 
-# ---------------------------------------------------------------------------
-b "5/6  Default locale in config/parameters.yaml"
-# ---------------------------------------------------------------------------
-# The Symfony skeleton generates "locale: en_US" - this global %locale%
-# parameter propagates to, among others, sylius_locale.locale,
-# sylius_money.locale and translation.default_locale, and decides where
-# Sylius redirects BEFORE a channel has been determined from the hostname
-# (e.g. /shop/ -> /shop/en_US/, even though the channel DB configuration
-# correctly says de_DE - see FIXES.md No. 14).
-PARAMS="config/parameters.yaml"
-if [[ -f "$PARAMS" ]] && grep -q "locale: en_US" "$PARAMS"; then
+# Default locale: the global %locale% parameter propagates to
+# sylius_locale.locale, sylius_money.locale and translation.default_locale
+# and decides where Sylius redirects BEFORE a channel has been determined
+# from the hostname (FIXES.md No. 14).
+PARAMS="sylius/config/parameters.yaml"
+[[ -f "$PARAMS" ]] || die "$PARAMS not found - incomplete Sylius skeleton?"
+if grep -q "locale: en_US" "$PARAMS"; then
   cp "$PARAMS" "$PARAMS.bak"
   sed -i.tmp 's/locale: en_US/locale: de_DE/' "$PARAMS"
   rm -f "$PARAMS.tmp"
-  g "   locale: en_US -> de_DE set (backup: $PARAMS.bak)"
+  g "   locale: en_US -> de_DE (backup: $PARAMS.bak)"
+elif grep -q "locale: de_DE" "$PARAMS"; then
+  g "   locale already de_DE"
 else
-  g "   config/parameters.yaml already correct or not present"
+  die "no 'locale:' entry found in $PARAMS"
+fi
+
+# Sylius' own _sylius.yaml must be there - it used to get lost in the old
+# stash-and-restore dance.
+if [[ -f sylius/config/packages/_sylius.yaml ]]; then
+  g "   config/packages/_sylius.yaml (Sylius original) present"
+else
+  die "sylius/config/packages/_sylius.yaml is missing - incomplete copy?"
 fi
 
 # ---------------------------------------------------------------------------
-b "6/6  Sulu skeleton (${SULU_VERSION}) into ./sulu"
+b "5/5  Dependency state"
 # ---------------------------------------------------------------------------
-# Installed directly through the "sulu" service, whose ./sulu:/app mount is
-# already declared in docker-compose.yaml - no extra -v mount needed.
-mkdir -p sulu
-if [[ -f sulu/composer.json ]]; then
-  g "   already present - skipped"
-else
-  $DC run --rm --no-deps -T sulu bash -c "
-    set -e
-    rm -rf /tmp/sulu3
-    composer create-project sulu/skeleton:${SULU_VERSION} /tmp/sulu3 \
-      --no-interaction --no-scripts --prefer-dist
-    cp -r /tmp/sulu3/. /app/
-    rm -rf /tmp/sulu3
-  " || { r "   Sulu install failed"; exit 1; }
-  g "   Sulu ${SULU_VERSION} set up"
-fi
+# A missing lock is not an error on a first run of a new Sulu or Sylius
+# series - but it must not pass unnoticed, because the next install would
+# then resolve something different again.
+MISSING=""
+for app in sylius sulu; do
+  [[ -f "$app-overlay/composer.lock" ]] || MISSING="$MISSING $app"
+done
 
-# --- Safety net: the outdated proxy-manager-bridge must not show up again --
-if $DC run --rm --no-deps -T sulu bash -c \
-     "composer show symfony/proxy-manager-bridge >/dev/null 2>&1"; then
-  r "   WARNING: symfony/proxy-manager-bridge is installed."
-  r "   That was the cause of the infinite loop with Sulu 2.6. Check with:"
-  r "     make shell-sulu -> composer why symfony/proxy-manager-bridge"
+if [[ -n "$MISSING" ]]; then
+  y "   no reviewed composer.lock for:$MISSING"
+  y "   make deps will resolve dependencies fresh. Once the stack is"
+  y "   verified, freeze that state so it is reproducible:"
+  y "     make verify && make test-all && make freeze-locks"
 else
-  g "   symfony/proxy-manager-bridge not present (expected for Sulu 3.x)"
+  g "   reviewed composer.lock present for both applications"
 fi
 
 echo ""
-g "First install done. Next step:  make verify"
+g "First install done. Next step:  make docker-start && make deps && make verify"

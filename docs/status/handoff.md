@@ -2,7 +2,7 @@
 
 ## Was das ist
 Kickstarter für Sulu-CMS-plus-Sylius-Shop-Projekte, headless, DACH.
-Stand v36. Für Agenturteams gedacht, nicht als Wegwerf-Demo.
+Stand v38. Für Agenturteams gedacht, nicht als Wegwerf-Demo.
 
 ## Erster Start
 ```
@@ -60,22 +60,21 @@ dokumentiert `composer.json`-Konflikte.
 2. **`make setup` bricht ab, trotzdem committen.** Ergibt einen
    unvollständigen Commit. Erst die Erfolgsmeldung abwarten.
 3. **Bundle-Overrides in der falschen App.** Sylius-Overrides gehören
-   nach `templates/bundles/`, nicht ins Sulu-Overlay. `make verify`
-   Abschnitt 16 prüft das inzwischen.
+   nach `sylius-overlay/templates/bundles/`, nicht ins Sulu-Overlay.
+   `make verify` Abschnitt 16 prüft das inzwischen.
 4. **Eigene Klassen sind `final`.** PHPUnit kann sie nicht mocken; in
    Tests echte Instanzen mit `MockHttpClient` bauen.
 5. **Sulu-Inhalte brauchen manuelles Veröffentlichen.** Änderungen am
    Seiteninhalt landen zunächst nur im Entwurf.
-6. **`.kickstarter-overlay/` und `.sylius-original/` nicht committen.**
-   Beide erzeugt `install-apps.sh`: Schritt 1 legt einen Abzug der
-   eigenen Dateien an, bevor der Sylius-Installer sie überschreibt,
-   Schritt 3 holt sie zurück; Schritt 0 schiebt Sylius' eigene
-   `compose.yml` beiseite, damit `docker compose` ihr nicht Vorrang
-   gibt. Schritt 1 wird übersprungen, sobald Sylius installiert ist —
-   ein committeter Abzug friert damit ein und weicht still vom
-   Projektstand ab. Beide stehen in `.gitignore`.
-7. **Die Workflows in `.github/` sind keine Vorlage.** Sie stammen
-   unverändert aus `sylius/sylius-standard` und wurden für dieses
+6. **Änderungen direkt in `sylius/` oder `sulu/` gehen verloren.** Beide
+   Ordner werden erzeugt und sind ignoriert; Quelle ist das jeweilige
+   Overlay. `make verify` Abschnitt 19 meldet eine Overlay-Datei, die
+   nicht in der App angekommen ist. Umgekehrt gilt: Wer eine Datei nur
+   in der App anlegt, verliert sie beim nächsten `make sylius-theme`.
+7. **Es gibt keine CI-Konfiguration mehr.** Das geerbte `.github/` liegt
+   seit v38 im generierten `sylius/` und damit außerhalb des Repos. Die
+   Workflows stammten unverändert aus `sylius/sylius-standard` und
+   wurden für dieses
    Projekt nie angepasst: `composer update` ohne Lock, PHPStan mit
    Sylius' Level-9-Konfiguration statt der eigenen, Behat gegen ein
    leeres `features/`, Auto-Merge mit einem Secret, das es hier nicht

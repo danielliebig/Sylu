@@ -1,4 +1,19 @@
-# Aktueller Stand — v36
+# Aktueller Stand — v38
+
+## Neu in v38
+- Kickstarter im Root, `sylius/` und `sulu/` werden erzeugt und sind
+  ignoriert; Quellen liegen in `sylius-overlay/` und `sulu-overlay/`
+  (ADR-12). Eingecheckt sind rund 60 statt 269 Dateien
+- `kickstarter.yaml` hält nur die Versionen von Sylius und Sulu;
+  PHP 8.5, MySQL 8.4 und Node 24 werden per `make versions` aus der
+  Upstream-CI beider Projekte abgeleitet
+- `make freeze-locks` schreibt den geprüften Abhängigkeitsstand beider
+  Apps in die Overlays; die Sulu-Seite hat damit erstmals ein Lockfile
+- `make verify` hat 20 Abschnitte (0 bis 19) und ist einzeln aufrufbar:
+  `make verify SECTIONS="18 19"`
+- Bestätigt: eigene Produktfotos landen jetzt im Container
+  (FIXES.md Nr. 52); der Checkout-Patch lief seit Version 1 ins Leere
+  (Nr. 53)
 
 ## Funktionsfähig und bestätigt
 - Sulu-Startseite mit Live-Produktdaten aus Sylius

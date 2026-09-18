@@ -1,6 +1,18 @@
 # Backlog
 
-## P1 — Versionsstrategie: Patch-Updates beim Projektstart (v38)
+## Erledigt in v38 — Versionsstrategie und Struktur
+**Umgesetzt:** Die Versionsabsicht steht in `kickstarter.yaml` (zwei
+Constraints), PHP, MySQL und Node.js werden per `make versions` aus der
+Upstream-CI abgeleitet, und `make freeze-locks` schreibt den geprüften
+Stand beider Apps in die Overlays zurück. Damit hat auch die Sulu-Seite
+ein eingechecktes Lockfile — Befund 2 unten ist erledigt. Struktur und
+Begründung: ADR-12.
+**Noch offen daraus:** der Versionsbericht über verfügbare, bewusst nicht
+übernommene Minor- und Major-Versionen. `resolve-versions.sh` zeigt
+heute nur die getesteten PHP/MySQL-Paare beider Projekte, nicht die
+absichtlich nicht genommenen Sprünge.
+
+## P1 — Versionsstrategie: Patch-Updates beim Projektstart (erledigt v38)
 **Ziel:** Ein neues Projekt startet mit den neuesten Patches innerhalb
 der Versionsregel (ADR-11) und bleibt trotzdem lauffähig.
 **Scope:** `make setup` bleibt beim geprüften Lock-Stand. Ein eigener
@@ -14,8 +26,8 @@ liefert keins mit). Versionsbericht über verfügbare, bewusst nicht
 **Akzeptanz:** Nach dem Update-Schritt sind Symfony und Sulu auf dem
 neuesten Patch; ein absichtlich kaputtes Update lässt den Schritt
 fehlschlagen, ohne den Lock-Stand zu verlieren.
-**Status:** Grundsatz entschieden (v37), Detailplan gegen den Code steht
-aus.
+**Status:** umgesetzt in v38, siehe oben. Der Abschnitt bleibt als
+Zielbeschreibung stehen, weil der Versionsbericht noch fehlt.
 
 ## P2 — CI-Pipeline
 **Ziel:** `make setup`, `make phpstan`, `make test-all` laufen
@@ -40,7 +52,12 @@ Gegen den tatsächlichen Code geprüft, nicht geschätzt:
    Realistische Laufzeit eines vollen Durchlaufs 20–30 min, nicht 2.
    Konsequenz für den Zuschnitt: eher nächtlich und manuell auslösbar
    als bei jedem Push.
-2. **Sylius ist gelockt, Sulu wird beim Setup aufgelöst.** Weil
+2. **Erledigt in v38: Sylius war gelockt, Sulu wurde beim Setup
+   aufgelöst.** Seit v38 liegt in beiden Overlays ein eingecheckter
+   `composer.lock`, und `make setup` installiert immer daraus; ein
+   nächtlicher Lauf kann auf der Sulu-Seite also nicht mehr rot werden,
+   ohne dass sich im Repo etwas geändert hat. Der ursprüngliche Befund
+   zur Nachvollziehbarkeit: Weil
    `composer.json` mit `sylius/sylius` eingecheckt ist, überspringt
    `docker/scripts/install-apps.sh` das `create-project` für Sylius;
    `make deps` installiert exakt den Stand aus `composer.lock`
@@ -55,8 +72,9 @@ Gegen den tatsächlichen Code geprüft, nicht geschätzt:
    Konfiguration.** Ohne Argument gilt Sylius' `phpstan.dist.neon`:
    Level 9 auf `bin/ config/ public/ src/ tests/`. Nur `make phpstan`
    nimmt `phpstan-kickstarter.dist.neon` (Level 5, Begründung in
-   ADR-08) und ruft vorher `sulu-theme` auf, damit die Sulu-Seite nicht
-   alte Dateistände analysiert (FIXES.md Nr. 48).
+   ADR-08) und ruft vorher `sulu-theme` und seit v38 auch
+   `sylius-theme` auf, damit keine Seite alte Dateistände analysiert
+   (FIXES.md Nr. 48).
 4. **`make setup` verschluckt einen Fehler.** Im Target `deps` ist der
    Sulu-`cache:clear` als `… && printf … || printf …` verdrahtet. Der
    Exit-Code der Zeile ist der von `printf`, also immer 0: ein
