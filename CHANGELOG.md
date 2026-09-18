@@ -10,6 +10,26 @@ adapted for an internal kickstarter project rather than a public
 library, so there's no strict Added/Changed/Fixed split where it
 wouldn't add value.
 
+## [v39]
+
+- Removed: **the Redis service.** It had been running in the stack since
+  the beginning without either application using it - `REDIS_URL` was
+  set, nothing read it. Gone with it: the `depends_on` entry and the
+  variable. Symfony cache and sessions stay on the filesystem; which
+  backend to use in production is left to the team taking this over
+  (docs/decisions.md, ADR-13)
+- Added: `verify.sh` section 20 - every host in a DSN inside
+  `docker-compose.yaml` has to be a service declared in the same file.
+  Written generically rather than as a Redis check, so it also catches a
+  typo in an existing host and a `docker-compose.yaml` carried over from
+  an older version folder
+- Added: docs/status/handoff.md now carries the recipe for wiring cache
+  and sessions to Redis, Valkey or MySQL, including how to prove the
+  adapter actually took effect
+- Kept on purpose: the `redis` PHP extension in the image. It is not a
+  running service, and without it the recipe above would require an
+  image rebuild
+
 ## [v38]
 
 - Changed: **the kickstarter moved out of the Sylius application.** The

@@ -1,4 +1,16 @@
-# Aktueller Stand — v38
+# Aktueller Stand — v39
+
+## Neu in v39
+- Der Redis-Dienst ist entfernt. Er lief seit jeher mit, ohne dass ihn
+  eine der beiden Apps benutzte; Cache und Sessions liegen im
+  Dateisystem. Welches Backend im Betrieb genutzt wird, entscheidet das
+  übernehmende Team (ADR-13), das Rezept steht in `handoff.md`
+- `verify.sh` Abschnitt 20: jeder Host aus einer DSN in
+  `docker-compose.yaml` muss dort auch als Dienst deklariert sein —
+  fängt stehengebliebene Variablen und aus alten Versionsordnern
+  kopierte Compose-Dateien
+- Die PHP-Extension `redis` bleibt im Image, damit ein späteres Anbinden
+  keinen Image-Neubau braucht
 
 ## Neu in v38
 - Kickstarter im Root, `sylius/` und `sulu/` werden erzeugt und sind
@@ -9,7 +21,7 @@
   Upstream-CI beider Projekte abgeleitet
 - `make freeze-locks` schreibt den geprüften Abhängigkeitsstand beider
   Apps in die Overlays; die Sulu-Seite hat damit erstmals ein Lockfile
-- `make verify` hat 20 Abschnitte (0 bis 19) und ist einzeln aufrufbar:
+- `make verify` hat 21 Abschnitte (0 bis 20) und ist einzeln aufrufbar:
   `make verify SECTIONS="18 19"`
 - Bestätigt: eigene Produktfotos landen jetzt im Container
   (FIXES.md Nr. 52); der Checkout-Patch lief seit Version 1 ins Leere

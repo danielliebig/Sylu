@@ -73,7 +73,7 @@ Sulu; Shop-Betreiber verwaltet Produkte und Bestellungen in Sylius.
 ```
 
 ### Ebene 1
-Router (Caddy) · Sulu-App · Sylius-App · MySQL · Redis · Mailpit
+Router (Caddy) · Sulu-App · Sylius-App · MySQL · Mailpit
 
 ### Ebene 2 — eigene Bausteine, Sulu-App
 | Baustein | Aufgabe |

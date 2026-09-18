@@ -84,6 +84,67 @@ dokumentiert `composer.json`-Konflikte.
    Auch die Unit-Tests laufen über `docker compose exec -T sulu`. Ohne
    laufenden Stack gibt es keinen Testlauf, nur eine Docker-Fehlermeldung.
 
+## Cache und Sessions in Produktion
+Der Stack bringt bewusst keinen Cache-Dienst mit (ADR-13). Lokal liegen
+Symfony-Cache und Sessions im Dateisystem; sobald mehr als eine Instanz
+läuft, tragen Datei-Sessions nicht mehr. Ein Image-Neubau ist für keinen
+der Wege nötig — die PHP-Extension `redis` liegt bereits im Image.
+
+**Dienst ergänzen** in `docker-compose.yaml`, unter `services:`:
+
+```yaml
+  cache:
+    image: valkey/valkey:8-alpine     # oder redis:8-alpine
+    container_name: ks_cache
+    restart: unless-stopped
+    command: ["valkey-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    networks: [kickstarter]
+```
+
+Dazu in `x-php-env` die Variable und in `x-php-base` unter `depends_on`
+den Dienst eintragen:
+
+```yaml
+  REDIS_URL: redis://cache:6379
+```
+
+**Anbinden** in beiden Apps, `config/packages/cache.yaml`:
+
+```yaml
+framework:
+    cache:
+        app: cache.adapter.redis
+        default_redis_provider: '%env(REDIS_URL)%'
+```
+
+Und für die Sessions, `config/packages/framework.yaml`:
+
+```yaml
+framework:
+    session:
+        handler_id: '%env(REDIS_URL)%'
+```
+
+**Ohne zusätzlichen Dienst** geht beides auch in MySQL: Sessions über
+Symfonys `PdoSessionHandler` mit `handler_id` auf die bestehende
+`DATABASE_URL`. Die Session-Tabelle muss dabei einmal angelegt werden,
+sonst scheitert der erste Request — Details in der Symfony-Dokumentation
+zum Session-Handling.
+
+**Danach nachweisen, nicht annehmen.** Konfiguration, die nichts bewirkt,
+ist genau der Zustand, aus dem diese Entscheidung entstanden ist. Der
+aufgelöste Stand lässt sich im Container zeigen:
+
+```bash
+docker compose exec -T sylius php bin/console debug:config framework cache
+docker compose exec -T sylius php bin/console debug:config framework session
+```
+
+Wer das dauerhaft absichern will, hängt die Prüfung als eigenen Abschnitt
+in `verify.sh` ein — Abschnitt 20 prüft bereits, dass jeder Host aus einer
+DSN ein deklarierter Dienst ist, und wäre die Stelle zum Anknüpfen.
+
 ## Ungetestet
 Adyen. Backend und Widget sind gebaut und gegen Plugin-Code verifiziert,
 der Zahlungsvorgang lief aber nie — es fehlen Sandbox-Zugangsdaten.

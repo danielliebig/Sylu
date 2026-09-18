@@ -914,13 +914,68 @@ done
 }
 
 # ---------------------------------------------------------------------------
+section_20() {
+b "20. Compose: every host in a DSN is a declared service"
+# ---------------------------------------------------------------------------
+# Removing Redis (v39, ADR-13) would have left REDIS_URL pointing at a
+# service that no longer exists. Such a variable is silent: Symfony only
+# reads it once something is configured to, so the stack keeps working and
+# the mistake surfaces much later. The same happens when a
+# docker-compose.yaml is carried over from an older version folder.
+#
+# Hence this does not check for Redis. It checks the general rule: every
+# host in a DSN inside docker-compose.yaml has to be a service declared in
+# the same file. Skipped are hosts with a dot (smtp.example.com and the
+# like are external by definition), localhost, and hosts that are still an
+# unresolved ${...}. Comments are stripped first.
+COMPOSE_CHECK_FAILED=0
+CF="docker-compose.yaml"
+
+if [[ ! -f "$CF" ]]; then
+  r "  $CF not found - wrong working directory?"
+  FAILED=1
+else
+  SERVICES="$(awk '/^services:/{f=1;next}
+                   /^[a-zA-Z_-]/{f=0}
+                   f && /^  [a-z0-9_-]+:[[:space:]]*$/{gsub(/[ :]/,"");print}' "$CF")"
+
+  if [[ -z "$SERVICES" ]]; then
+    r "  no services found in $CF - has the file structure changed?"
+    COMPOSE_CHECK_FAILED=1
+  fi
+
+  CHECKED=0
+  while IFS= read -r host; do
+    [[ -z "$host" ]] && continue
+    [[ "$host" == *.* ]] && continue          # external host
+    [[ "$host" == *'$'* ]] && continue        # unresolved ${...}
+    [[ "$host" == "localhost" ]] && continue
+    CHECKED=$((CHECKED + 1))
+    if grep -qx -- "$host" <<< "$SERVICES"; then
+      g "  $host -> service declared"
+    else
+      r "  a DSN points at \"$host\", but $CF declares no such service"
+      r "    services present: $(tr '\n' ' ' <<< "$SERVICES")"
+      COMPOSE_CHECK_FAILED=1
+    fi
+  done < <(sed 's/#.*//' "$CF" \
+           | grep -oE '[a-z][a-z0-9+.-]*://[^[:space:]"'"'"',]+' \
+           | sed -E 's|^[a-z][a-z0-9+.-]*://||; s|^[^@/]*@||; s|[:/?].*$||' \
+           | sort -u)
+
+  [[ $CHECKED -eq 0 ]] && y "  no internal DSN found - nothing to check"
+fi
+[[ $COMPOSE_CHECK_FAILED -eq 1 ]] && FAILED=1
+}
+
+# ---------------------------------------------------------------------------
 #  Dispatcher
 #
 #  Without arguments every section runs, as before. With arguments only
 #  those run - "verify.sh 18 19" while working on one of them, instead of
-#  sitting through all nineteen.
+#  sitting through all twenty.
 # ---------------------------------------------------------------------------
-ALL_SECTIONS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19"
+ALL_SECTIONS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20"
 
 # Sections that talk to a running container, and sections that read files
 # inside the two applications. Both are pointless before the install ran.

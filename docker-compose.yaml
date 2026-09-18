@@ -40,8 +40,6 @@ x-php-base: &php-base
   depends_on:
     database:
       condition: service_healthy
-    redis:
-      condition: service_started
     mailpit:
       condition: service_started
   networks: [kickstarter]
@@ -53,7 +51,6 @@ x-php-env: &php-env
   APP_DEBUG: ${APP_DEBUG:-1}
   APP_SECRET: ${APP_SECRET:-please_change_in_env_docker_min_32_chars}
   MAILER_DSN: smtp://mailpit:1025
-  REDIS_URL: redis://redis:6379
   # Symfony runs behind the router -> trust the Docker subnets as proxies
   TRUSTED_PROXIES: 127.0.0.1,REMOTE_ADDR,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
   TRUSTED_HOSTS: '^.*$$'
@@ -160,13 +157,12 @@ services:
       start_period: 40s
     networks: [kickstarter]
 
-  redis:
-    image: redis:7-alpine
-    container_name: ks_redis
-    restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no",
-              "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
-    networks: [kickstarter]
+  # No cache/session service on purpose: the kickstarter ships no daemon
+  # that nothing talks to. Cache and sessions live on the filesystem here;
+  # wiring up Redis, Valkey or MySQL is a deployment decision of the team
+  # taking this over (ADR-13, recipe in docs/status/handoff.md). Section 20
+  # of verify.sh makes sure no environment variable points at a service
+  # that is not declared here.
 
   # Mailpit instead of Mailcatcher: Mailcatcher has no official arm64 image
   # and would run under emulation on the M5. Mailpit is its successor.

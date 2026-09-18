@@ -210,7 +210,6 @@ any manual invocation, or the defaults from the compose file take over.
 | `sylius` | custom FrankenPHP image | shop, `APP_ROOT=/app/public`, mounts `.` |
 | `sulu` | same image | CMS, mounts `./sulu` |
 | `database` | mysql:8.4 | two databases, health check (`MYSQL_*` variables; `serverVersion` kept in step by `make verify` section 17, FIXES.md No. 51) |
-| `redis` | redis:7-alpine | runs (256 MB LRU), but is **not wired to either app** — Symfony cache and sessions use the filesystem; `config/packages/cache.yaml` is the unmodified recipe with Redis commented out. Redis 7.4 is licensed RSALv2/SSPLv1, not OSI open source. Kept as is by decision (v37) |
 | `mailpit` | axllent/mailpit | SMTP sink + web UI |
 | `phpmyadmin` | phpmyadmin:5-apache | DB inspection |
 
@@ -472,7 +471,8 @@ Sorted by benefit per unit of effort:
 6. **Production hardening:** `APP_ENV=prod`,
    `opcache.validate_timestamps=0`, remove phpMyAdmin, stop mapping the
    MySQL port outward, real secrets via environment variables, TLS
-   termination, Redis for sessions.
+   termination, and a cache/session backend - the stack deliberately
+   ships none (ADR-13); the recipe is in docs/status/handoff.md.
 
 ---
 

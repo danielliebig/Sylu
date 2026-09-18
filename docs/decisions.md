@@ -169,3 +169,42 @@ weil `sylius/sylius-standard` unabhängig vom Framework versioniert ist und
 bei 2.2.4 endet. Neue Host-Abhängigkeit: `python3` für die Ableitung.
 `verify.sh` prüft die Struktur in Abschnitt 19 und die abgeleiteten
 Versionen in Abschnitt 18.
+
+## ADR-13 Kein Cache- und Session-Dienst im Kickstarter
+**Status:** umgesetzt (v39)
+**Entscheidung:** Der Stack enthält keinen Redis- oder Valkey-Dienst.
+Symfony-Cache und Sessions liegen im Dateisystem, `cache.yaml` bleibt in
+beiden Apps das unveränderte Rezept. Wo Cache und Sessions im Betrieb
+landen, entscheidet das übernehmende Team; das Rezept dafür steht in
+`docs/status/handoff.md`.
+**Begründung:** Bis v38 lief ein `redis:7-alpine` mit, den keine der
+beiden Anwendungen benutzte. `REDIS_URL` war gesetzt, aber nichts las
+sie — in v37 war das bewusst so belassen und nur die Doku korrigiert
+worden. Ein Dienst, der nichts tut, kostet beim ersten Lesen Vertrauen
+und beim zweiten eine Stunde Suche. Dateisystem-Sessions tragen bei
+mehreren Instanzen nicht, aber Mehr-Instanz-Betrieb ist eine
+Deployment-Frage, und die hängt an der Zielinfrastruktur — dieselbe
+Klasse Entscheidung, die bei der CI-Pipeline schon dem übernehmenden Team
+überlassen wurde (ADR-10).
+**Verworfene Alternativen:**
+- *Anbinden statt entfernen.* Hätte die Wahl des Backends vorweggenommen,
+  die der Kickstarter nicht treffen kann, und ihn um einen Dienst
+  erweitert, den die lokale Entwicklung nicht braucht.
+- *Nur den Cache anbinden, Sessions im Dateisystem lassen.* Halber
+  Schritt: der eigentliche Grund für einen solchen Dienst sind die
+  Sessions.
+- *Redis stehen lassen und nur die Doku ehrlich halten* — der Stand aus
+  v37. Hält den Widerspruch am Leben, statt ihn aufzulösen.
+**Lizenznotiz:** Redis 7.4 stand unter RSALv2/SSPLv1 und war damit nicht
+OSI-konform. Seit Redis 8 (Mai 2025) gibt es eine Tri-Lizenz, die AGPLv3
+einschließt. Wer anbindet, hat also drei Wege: Redis 8 unter AGPLv3,
+Valkey unter BSD (Fork der Linux Foundation) oder Cache und Sessions in
+MySQL, ganz ohne zusätzlichen Dienst.
+**Konsequenzen:** Die PHP-Extension `redis` bleibt im Image
+(`docker/php/Dockerfile`), damit das Anbinden später keinen Image-Neubau
+erfordert — sie ist kein laufender Dienst und widerspricht der
+Entscheidung nicht. `verify.sh` prüft in Abschnitt 20 generisch, dass
+kein Host in einer DSN auf einen Dienst zeigt, den `docker-compose.yaml`
+nicht deklariert: genau der Fehler, der mit einer stehengebliebenen
+`REDIS_URL` entstanden wäre, und derselbe, der beim Kopieren eines alten
+`docker-compose.yaml` in einen neuen Versionsordner entsteht.
