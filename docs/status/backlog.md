@@ -41,6 +41,32 @@ Laufzeit dokumentiert.
 weil die Plattformwahl an dessen Zielinfrastruktur hängt — siehe ADR-10.
 Letzter Punkt der ursprünglichen Lückenliste.
 
+## P3 — Redis: anbinden oder entfernen
+**Ziel:** Der Stack enthält keinen Dienst, der nichts tut.
+**Ausgangslage:** Der Container läuft mit `redis:7-alpine`, wird aber von
+keiner der beiden Apps benutzt. Symfony-Cache und Sessions liegen im
+Dateisystem, `config/packages/cache.yaml` ist das unveränderte Rezept mit
+auskommentiertem Redis-Block. In v37 bewusst so belassen, nur die Doku
+wurde korrigiert; in v38 unverändert. Die Redis-Version wird auch nicht
+abgeleitet (`versions.env` deckt nur PHP, MySQL und Node ab, siehe
+ADR-11), sie steht als fester Tag in `docker-compose.yaml`.
+**Zu entscheiden:** anbinden, weil ein Kundenprojekt Cache und Sessions
+ohnehin brauchen wird — oder entfernen, solange ihn nichts nutzt.
+**Abwägung:** Für das Anbinden spricht, dass Dateisystem-Sessions bei
+mehreren Instanzen nicht tragen. Dagegen spricht die Lizenz: Redis 7.4
+steht unter RSALv2/SSPLv1 und ist nicht OSI-konform, was bei
+mitgelieferten Containern in Kundenprojekten zu prüfen ist. Alternativen
+wären Valkey (BSD, Redis-Fork) oder Cache und Sessions in MySQL.
+**Scope beim Anbinden:** `cache.yaml` und `framework.session` in beiden
+Apps, `REDIS_URL` ist in `docker-compose.yaml` bereits gesetzt, plus eine
+Prüfung in `verify.sh`, dass der Cache-Adapter tatsächlich Redis ist —
+sonst steht am Ende wieder Konfiguration da, die nichts bewirkt.
+**Scope beim Entfernen:** Service und `depends_on` in
+`docker-compose.yaml`, `REDIS_URL` aus `x-php-env`, die Redis-Zeile in
+der Container-Tabelle in CLAUDE.md, ADR-Notiz zur Begründung.
+**Akzeptanz:** Entweder weist `make verify` nach, dass beide Apps Redis
+benutzen, oder im Stack läuft kein Redis mehr und keine Doku erwähnt ihn.
+
 ### Befunde, die man sonst selbst erarbeiten muss
 
 Gegen den tatsächlichen Code geprüft, nicht geschätzt:
@@ -159,7 +185,9 @@ TLS, Secrets bewerten.
 
 ## P3 — Echte Produktfotos
 **Ziel:** Generierte Icons ersetzen.
-**Scope:** Sechs Fotos nach `var/demo-images/<code>.jpg`.
+**Scope:** Sechs Fotos nach `sylius-overlay/var/demo-images/<code>.jpg`,
+danach `make install-apps`. Der Weg in den Container ist seit v38
+bestätigt (FIXES.md Nr. 52) — vorher kamen die Fotos dort nie an.
 **Akzeptanz:** Katalog zeigt Fotos statt Icons.
 **Blockiert durch:** Claude kann keine Bilder beschaffen
 (Netzwerkbeschränkung).
